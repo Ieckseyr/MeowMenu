@@ -1,0 +1,20 @@
+{
+  "name": "yoyo-plugin-template",
+  "version": "1.0.6",
+  "description": "一款支持多个插件的模板-可以对子插件进行、混淆、转jsc等加密措施。",
+  "main": "src/index.js",
+  "scripts": {},
+  "keywords": [],
+  "author": "Yoyo QQ:1294858802",
+  "license": "ISC",
+  "packageManager": "pnpm@10.6.3",
+  "dependencies": {
+    "bytenode": "^1.5.7",
+    "cron": "^4.3.1",
+    "fs-extra": "^11.3.0",
+    "progress": "^2.0.3"
+  },
+  "devDependencies": {
+    "javascript-obfuscator": "^4.1.1"
+  }
+}

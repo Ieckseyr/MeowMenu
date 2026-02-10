@@ -1,0 +1,28 @@
+{
+    "entry": "src/index.js",
+    "name": "Meow",
+    "type": "lse-nodejs",
+    "version": "1.0.8",
+    "author": "Yoyo",
+    "description": "一款支持多个插件的模板-可以对子插件进行、混淆、转jsc等加密措施。",
+    "extraInfo": {
+        "qq": "1294858802",
+        "demander": "2595923961"
+    },
+    "dependencies": [
+        {
+            "name": "legacy-script-engine-nodejs"
+        }
+    ],
+    "optionalDependencies": [
+        {
+            "name": "GMLIB-LegacyRemoteCallApi"
+        },
+        {
+            "name": "iListenAttentively-LseExport"
+        },
+        {
+            "name": "GMLIB"
+        }
+    ]
+}

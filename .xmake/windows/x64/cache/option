@@ -1,0 +1,28 @@
+{
+    target_type = {
+        __scriptdir = [[E:\111FWQ\xb26.10.14\plugins\MeowMenu]],
+        values = {
+            "server",
+            "client"
+        },
+        __sourceinfo_default = {
+            server = {
+                line = 20,
+                file = [[.\xmake.lua]]
+            }
+        },
+        showmenu = true,
+        default = "server",
+        __sourceinfo_values = {
+            client = {
+                line = 22,
+                file = [[.\xmake.lua]]
+            },
+            server = {
+                line = 22,
+                file = [[.\xmake.lua]]
+            }
+        },
+        __sourceinfo_showmenu = { }
+    }
+}

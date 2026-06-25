@@ -1,0 +1,7 @@
+{
+    "name": "MeowMenu",
+    "entry": "MeowMenu.dll",
+    "version": "1.0.0",
+    "type": "native",
+    "description": "MeowMenu C++ - Protocol-layer menu plugin with per-menu DogeUI identifiers"
+}

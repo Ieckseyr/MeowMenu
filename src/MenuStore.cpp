@@ -23,6 +23,35 @@ std::string MenuStore::getMenuPath(std::string const& id) {
     return std::string(DATA_DATA_DIR) + "/" + id + ".json";
 }
 
+Menu MenuStore::makeDefaultMainMenu(std::string const& id) {
+    Menu main;
+    main.id      = id;
+    main.title   = "§l§b服务器菜单";
+    main.content = "欢迎来到服务器！";
+
+    // 使用指定初始化避免聚合初始化字段错位
+    // （历史 bug：曾把 admin_command 赋给 iconItem、mmenu admin 赋给 type）
+    Button btn{
+        .text     = "§l§6菜单编辑器\n§7仅管理员可见",
+        .icon     = "textures/ui/icon_setting",
+        .iconItem = "",
+        .type     = "admin_command",
+        .value    = "mmenu admin",
+        .item     = ""
+    };
+    main.buttons.push_back(btn);
+    return main;
+}
+
+bool MenuStore::isDefaultMainMenu(Menu const& menu) {
+    auto def = makeDefaultMainMenu(menu.id);
+    // 仅比较 title + content：
+    // 1) 兼容历史字段错位版本（按钮字段曾错位，但 title/content 不变）
+    // 2) 跨重启稳定（默认菜单保存到磁盘后再加载，title/content 仍为默认值）
+    // 管理员若改过标题或内容，即视为已自定义，迁移时跳过
+    return menu.title == def.title && menu.content == def.content;
+}
+
 bool MenuStore::loadMenu(std::string const& id) {
     std::string path = getMenuPath(id);
     if (!fs::exists(path)) return false;
@@ -49,6 +78,12 @@ void MenuStore::loadAll() {
 
     if (!fs::exists(DATA_DATA_DIR)) return;
 
+    // 热重载时清空内存中已有的菜单，确保磁盘上的删除/改动能被正确反映
+    {
+        std::unique_lock lock(mMutex);
+        mMenus.clear();
+    }
+
     int count = 0;
     for (auto const& entry : fs::directory_iterator(DATA_DATA_DIR)) {
         if (!entry.is_regular_file()) continue;
@@ -67,18 +102,8 @@ void MenuStore::loadAll() {
         std::shared_lock lock(mMutex);
         if (mMenus.find(cfg.mainMenuId) == mMenus.end()) {
             lock.unlock();
-            // 创建默认主菜单
-            Menu main;
-            main.id      = cfg.mainMenuId;
-            main.title   = "§l§b服务器菜单";
-            main.content = "欢迎来到服务器！";
-            main.buttons.push_back({
-                "§l§6菜单编辑器\n§7仅管理员可见",
-                "textures/ui/icon_setting",
-                "admin_command",
-                "mmenu admin",
-                "minecraft:command_block"
-            });
+            // 创建默认主菜单（字段顺序由 makeDefaultMainMenu 保证正确）
+            Menu main = makeDefaultMainMenu(cfg.mainMenuId);
             saveMenu(main);
             count++;
         }

@@ -4,6 +4,8 @@
 #include "MenuRenderer.h"
 #include "MeowMenu.h"
 
+#include "meowpapi/PlaceholderApi.h"
+
 #include <ll/api/service/Bedrock.h>
 
 #include <mc/server/commands/CommandContext.h>
@@ -30,9 +32,11 @@ bool ButtonHandler::isOp(Player& player) {
 }
 
 std::string ButtonHandler::resolveCommand(Player& player, std::string const& command) {
-    std::string result = command;
+    // 先通过 MeowPAPI 翻译变量（%name% 和 {name} 格式）
+    std::string result = meowpapi::PlaceholderApi::getInstance().translateStringWithPlayer(command, &player);
+
+    // 兼容旧的 {player} 变量（PAPI 未注册时回退）
     std::string playerName = player.getNameTag();
-    // 替换 {player}
     std::string search = "{player}";
     size_t      pos    = 0;
     while ((pos = result.find(search, pos)) != std::string::npos) {

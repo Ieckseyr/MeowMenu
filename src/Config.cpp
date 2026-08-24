@@ -45,6 +45,13 @@ void ConfigManager::load() {
         mConfig.mainMenuId  = j.value("mainMenuId", "main");
         mConfig.allowPlayerModeChoice = j.value("allowPlayerModeChoice", false);
 
+        // 仅支持 static 模式，chestUI/视频/轮播等模式已放弃；提示用户配置将被忽略
+        if (mConfig.displayMode != "static") {
+            lib().getSelf().getLogger().warn(
+                "displayMode={} 不受支持，本版本仅支持 static 模式，该配置将被忽略",
+                mConfig.displayMode);
+        }
+
         // triggerItem
         if (j.contains("triggerItem")) {
             auto const& ti = j["triggerItem"];

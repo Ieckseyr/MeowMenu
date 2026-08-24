@@ -1,6 +1,6 @@
-// MeowMenu.h - 协议层菜单插件主模块
+// MeowMenu.h - 菜单插件主模块
 //
-// 使用 Protocol-v944 原始数据包发送 SimpleForm，
+// 使用 LeviLamina Form API 发送 SimpleForm，
 // 支持每菜单独立的 DogeUI 标识符（自定义前缀）。
 // 暂时放弃动态菜单(DDUI)和箱子菜单模式，仅保留普通静态菜单。
 #pragma once

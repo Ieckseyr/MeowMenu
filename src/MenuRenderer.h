@@ -1,7 +1,6 @@
 // MenuRenderer.h - 菜单渲染器
 //
-// 构建 SimpleForm JSON，应用 DogeUI 标识符前缀，
-// 通过协议层（FormSender）发送原始数据包给玩家。
+// 使用 LeviLamina SimpleForm API 渲染菜单表单，应用 DogeUI 标识符前缀。
 //
 // DogeUI 逻辑：
 // - 每个菜单可独立配置 dogeui.enabled 和 dogeui.prefix

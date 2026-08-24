@@ -1,23 +1,23 @@
 // MenuRenderer.cpp - 菜单渲染器实现
 //
-// 构建 SimpleForm JSON，应用 DogeUI 标识符前缀，通过协议层发送。
+// 使用 LeviLamina SimpleForm API 发送表单给玩家。
+// 应用 DogeUI 标识符前缀到标题，支持 MeowPAPI 变量翻译（标题、内容、按钮文本）。
 #include "MenuRenderer.h"
 #include "Config.h"
 #include "MenuStore.h"
-#include "FormSender.h"
-#include "FormManager.h"
 #include "ButtonHandler.h"
 #include "MeowMenu.h"
+#include "IconValidator.h"
 
+#include "meowpapi/PlaceholderApi.h"
+
+#include <ll/api/form/SimpleForm.h>
 #include <ll/api/service/Bedrock.h>
 
 #include <mc/world/actor/player/Player.h>
-#include <mc/world/level/Level.h>
 
 #include <fmt/format.h>
 
-#include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -68,61 +68,40 @@ void MenuRenderer::renderMenu(Player& player, std::string const& menuId) {
         logger.info("菜单 {} 应用 DogeUI 标识符: '{}'", menuId, prefix);
     }
 
-    // 构建按钮列表（跳过 spacer 类型）
-    std::vector<std::pair<std::string, std::string>> buttons;
-    buttons.reserve(menu->buttons.size());
+    // 通过 MeowPAPI 翻译变量（%name% 和 {name} 格式）
+    auto& papi = meowpapi::PlaceholderApi::getInstance();
+    title         = papi.translateStringWithPlayer(title, &player);
+    std::string content = papi.translateStringWithPlayer(menu->content, &player);
+
+    // 构建 SimpleForm（跳过 spacer 类型按钮）
+    auto form = ll::form::SimpleForm{};
+    form.setTitle(title);
+    form.setContent(content);
+
     for (auto const& btn : menu->buttons) {
         if (btn.type == "spacer") continue; // 空格按钮在表单模式下跳过
-        buttons.emplace_back(btn.text, btn.icon);
-    }
 
-    // 构建 SimpleForm JSON
-    std::string formJson = FormSender::buildSimpleFormJson(title, menu->content, buttons);
+        std::string translatedText = papi.translateStringWithPlayer(btn.text, &player);
 
-    // 存储玩家网络标识（用于回调时重新获取玩家）
-    std::string networkKey = player.getNetworkIdentifier().getIPAndPort();
+        // 解析最终使用的图标路径
+        // 优先级：icon（文本路径）> iconItem（物品 ID）> 无图标
+        std::string resolvedIcon = IconValidator::getInstance().resolveIcon(btn.icon, btn.iconItem);
 
-    // 分配 formId 并注册回调
-    uint32_t formId = FormManager::getInstance().allocate(
-        [menuId, menuCopy = *menu, networkKey](uint32_t, std::optional<int> buttonIndex) {
-            if (!buttonIndex.has_value()) {
-                return; // 玩家关闭表单
-            }
-
-            // 通过 networkKey 获取玩家
-            auto level = ll::service::getLevel();
-            if (!level.has_value()) return;
-
-            Player* player = nullptr;
-            level->forEachPlayer([&](Player& p) -> bool {
-                if (p.getNetworkIdentifier().getIPAndPort() == networkKey) {
-                    player = &p;
-                    return true;
-                }
-                return false;
+        // 捕获按钮数据副本，回调中处理点击
+        Button buttonCopy = btn;
+        if (resolvedIcon.empty()) {
+            form.appendButton(translatedText, [buttonCopy](Player& pl) {
+                ButtonHandler::handleButton(pl, buttonCopy);
             });
-
-            if (!player) return;
-
-            // 映射可见按钮索引到实际按钮
-            int visibleIndex = 0;
-            for (auto const& btn : menuCopy.buttons) {
-                if (btn.type == "spacer") continue;
-
-                if (visibleIndex == buttonIndex.value()) {
-                    ButtonHandler::handleButton(*player, btn);
-                    break;
-                }
-                visibleIndex++;
-            }
+        } else {
+            form.appendButton(translatedText, resolvedIcon, "path", [buttonCopy](Player& pl) {
+                ButtonHandler::handleButton(pl, buttonCopy);
+            });
         }
-    );
-
-    // 发送表单
-    if (!FormSender::sendToPlayer(player, formId, formJson)) {
-        logger.error("发送菜单表单失败: menuId={}, player={}", menuId, player.getNameTag());
-        player.sendMessage("§c[MeowMenu] 菜单打开失败，请稍后重试");
     }
+
+    // 发送表单给玩家（LL Form API 内部处理 formId 分配和响应回调）
+    form.sendTo(player);
 }
 
 } // namespace meowmenu

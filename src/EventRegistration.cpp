@@ -7,6 +7,7 @@
 #include "EventRegistration.h"
 #include "Config.h"
 #include "TriggerItem.h"
+#include "ItemTrigger.h"
 #include "MenuRenderer.h"
 #include "MeowMenu.h"
 
@@ -44,6 +45,33 @@ static bool checkCooldown(std::string const& playerKey) {
     }
     gUseCooldown[playerKey] = now;
     return true;
+}
+
+// 解析玩家手持物品应打开的菜单 ID
+// 优先级：
+//   1. 硬编码 clock 触发物品 → config.mainMenuId
+//   2. LSE 注册的自定义物品触发（ItemTrigger）→ 对应 menuId
+//   3. 无匹配 → 返回空串
+static std::string resolveTriggerMenu(Player& player) {
+    // 1. 硬编码 clock 触发物品
+    if (TriggerItem::isTriggerItem(player)) {
+        auto const& cfg = ConfigManager::getInstance().getConfig();
+        return cfg.mainMenuId;
+    }
+
+    // 2. 自定义物品触发（LSE 注册）
+    try {
+        auto& carried = player.getCarriedItem();
+        if (!carried.isNull()) {
+            std::string itemType = carried.getTypeName();
+            if (!itemType.empty()) {
+                std::string menuId = ItemTrigger::getInstance().findMenuId(itemType);
+                if (!menuId.empty()) return menuId;
+            }
+        }
+    } catch (...) {}
+
+    return "";
 }
 
 void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
@@ -89,8 +117,9 @@ void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
         [](ll::event::PlayerInteractBlockEvent& event) {
             auto& player = event.self();
 
-            // 检查手持物品是否为触发物品
-            if (!TriggerItem::isTriggerItem(player)) return;
+            // 解析手持物品应打开的菜单（硬编码 clock 或 LSE 自定义触发）
+            std::string menuId = resolveTriggerMenu(player);
+            if (menuId.empty()) return; // 无触发物品
 
             // 冷却检查
             auto playerKey = player.getNetworkIdentifier().getIPAndPort();
@@ -99,9 +128,8 @@ void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
                 return;
             }
 
-            // 打开主菜单
-            auto const& cfg = ConfigManager::getInstance().getConfig();
-            MenuRenderer::getInstance().renderMenu(player, cfg.mainMenuId);
+            // 打开菜单
+            MenuRenderer::getInstance().renderMenu(player, menuId);
 
             // 取消事件（阻止方块交互）
             event.cancel();
@@ -114,8 +142,9 @@ void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
         [](ll::event::PlayerUseItemEvent& event) {
             auto& player = event.self();
 
-            // 检查手持物品是否为触发物品
-            if (!TriggerItem::isTriggerItem(player)) return;
+            // 解析手持物品应打开的菜单（硬编码 clock 或 LSE 自定义触发）
+            std::string menuId = resolveTriggerMenu(player);
+            if (menuId.empty()) return; // 无触发物品
 
             // 冷却检查
             auto playerKey = player.getNetworkIdentifier().getIPAndPort();
@@ -124,9 +153,8 @@ void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
                 return;
             }
 
-            // 打开主菜单
-            auto const& cfg = ConfigManager::getInstance().getConfig();
-            MenuRenderer::getInstance().renderMenu(player, cfg.mainMenuId);
+            // 打开菜单
+            MenuRenderer::getInstance().renderMenu(player, menuId);
 
             // 取消事件
             event.cancel();

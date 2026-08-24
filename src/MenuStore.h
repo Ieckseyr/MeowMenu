@@ -38,6 +38,14 @@ public:
     // 获取菜单文件路径
     static std::string getMenuPath(std::string const& id);
 
+    // 构造默认主菜单模板（用于首次创建 + 迁移时识别"初始状态"）
+    // 字段顺序严格匹配 Button 结构体（text, icon, iconItem, type, value, item）
+    static Menu makeDefaultMainMenu(std::string const& id);
+
+    // 判断菜单是否仍为未修改的默认主菜单（仅比较 title + content，
+    // 兼容历史字段错位版本：只要标题与内容仍是默认值即视为初始状态）
+    static bool isDefaultMainMenu(Menu const& menu);
+
 private:
     MenuStore() = default;
 

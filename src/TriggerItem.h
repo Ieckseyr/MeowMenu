@@ -1,7 +1,9 @@
 // TriggerItem.h - 触发物品系统
 //
-// 管理菜单触发物品（默认时钟）的给予、检查、清除。
-// 支持从 SNBT 创建物品，玩家进服自动给予。
+// 管理菜单触发物品（minecraft:clock）的给予、检查、清除。
+// 物品 NBT 硬编码于 TriggerItem.cpp（严格固定，不读 config.snbt）。
+// 给予采用 Player::add（事务系统）+ refreshInventory（全包同步），确保可见且可移动。
+// 玩家进服自动给予（每次进服检查背包，无 clock 才给予）。
 #pragma once
 
 #include <string>

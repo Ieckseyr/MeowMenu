@@ -37,6 +37,18 @@ void showAddButton(Player& player, std::string const& menuId);
 // 编辑按钮
 void showEditButton(Player& player, std::string const& menuId, int buttonIndex);
 
+// 删除按钮选择器（列出按钮供选择删除）
+void showDeleteButtonSelector(Player& player, std::string const& menuId);
+
+// 删除菜单二次确认
+void showDeleteMenuConfirm(Player& player, std::string const& menuId);
+
+// 从手持物品设置按钮图标（选择按钮列表）
+void showIconFromHandSelector(Player& player, std::string const& menuId);
+
+// 从手持物品设置指定按钮的图标
+void setButtonIconFromHand(Player& player, std::string const& menuId, int buttonIndex);
+
 // DogeUI 设置
 void showDogeUISettings(Player& player, std::string const& menuId);
 

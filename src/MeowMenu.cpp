@@ -1,15 +1,20 @@
-// MeowMenu.cpp - 协议层菜单插件主模块实现
+// MeowMenu.cpp - 菜单插件主模块实现
+//
+// 使用 LeviLamina Form API 实现菜单表单的发送与回调处理。
 #include "MeowMenu.h"
 #include "Config.h"
 #include "MenuStore.h"
-#include "FormManager.h"
-#include "FormSender.h"
-#include "FormResponseHook.h"
 #include "ButtonHandler.h"
 #include "MenuRenderer.h"
 #include "TriggerItem.h"
 #include "MenuEditor.h"
 #include "EventRegistration.h"
+#include "IconValidator.h"
+#include "ItemTrigger.h"
+#include "MigrationManager.h"
+#include "ExportApi.h"
+
+#include "meowpapi/PlaceholderApi.h"
 
 #include "ll/api/event/EventBus.h"
 #include "ll/api/mod/RegisterHelper.h"
@@ -42,23 +47,34 @@ bool MeowMenu::enable() {
         // 1. 加载配置
         ConfigManager::getInstance().load();
 
-        // 2. 加载菜单数据
+        // 2. 初始化图标校验器（解析嵌入的 texture_path.json）
+        //    必须在加载菜单数据之前完成，以便加载菜单时修复非法图标
+        IconValidator::getInstance().initialize();
+
+        // 3. 加载菜单数据
         MenuStore::getInstance().loadAll();
 
-        // 3. 初始化表单管理器（formId 分配 + 回调注册表）
-        FormManager::getInstance().init();
+        // 3.1 自动迁移其他菜单插件格式（CD/PMenu/CMENU）到 data/
+        //     扫描 Meowdata/MeowMenu/migrations/ 下的 JSON，识别后转换导入
+        MigrationManager::getInstance().autoMigrate();
 
-        // 4. 安装 ModalFormResponsePacket 钩子（接收玩家表单响应）
-        FormResponseHook::hook();
+        // 3. 初始化 MeowPAPI 客户端模式（通过 RemoteCall 调用 MeowSidebar 的 PAPI 中心）
+        meowpapi::PlaceholderApi::getInstance().initAsClient();
 
-        // 5. 注册命令 /mmenu
+        // 4. 注册命令 /mmenu
         registerCommands();
 
-        // 6. 注册事件监听（玩家加入、物品使用）
+        // 5. 注册事件监听（玩家加入、物品使用）
         registerEvents(mListenerPtrs);
 
-        logger.info("MeowMenu (C++) enabled. 仅支持普通菜单(static)模式，DogeUI 每菜单可自定义前缀。");
-        logger.info("Usage: /mmenu [admin|mode] | /mmgv");
+        // 6. 初始化自定义物品触发注册表（LSE 通过 API 注册的物品→菜单绑定）
+        ItemTrigger::getInstance().initialize();
+
+        // 7. 注册 RemoteCall API 导出（命名空间: MeowMenu）
+        ExportApi::getInstance().registerAll();
+
+        logger.info("MeowMenu (C++) enabled. 基于 LeviLamina Form API，DogeUI 每菜单可自定义前缀。");
+        logger.info("Usage: /mmenu [admin|reload|mode] | /mmgv");
     } catch (std::exception const& e) {
         logger.error("MeowMenu enable failed: {}", e.what());
     } catch (...) {
@@ -77,12 +93,6 @@ bool MeowMenu::disable() {
         eventBus.removeListener(ptr);
     }
     mListenerPtrs.clear();
-
-    // 卸载表单响应钩子
-    FormResponseHook::unhook();
-
-    // 清理表单管理器
-    FormManager::getInstance().shutdown();
 
     logger.info("MeowMenu (C++) disabled.");
     return true;

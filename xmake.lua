@@ -1,7 +1,26 @@
 add_rules("mode.debug", "mode.release")
 
--- 使用本地缓存的 liteldev-repo（避免 GitHub 网络访问）
-add_repositories("liteldev-repo ../MeowEntityModel/.xmake/windows/x64/repositories/liteldev-repo")
+-- 优先使用本地缓存的 liteldev-repo，回退到 GitHub 远程
+-- 依次尝试：MeowMenu 自身、兄弟插件、根目录的本地仓库
+local function find_local_repo()
+    local candidates = {
+        path.join(os.projectdir(), ".xmake", os.host(), os.arch(), "repositories", "liteldev-repo"),
+        path.join(os.projectdir(), "..", "RecipeExporter", ".xmake", os.host(), os.arch(), "repositories", "liteldev-repo"),
+        path.join(os.projectdir(), "..", "MeowSidebar", ".xmake", os.host(), os.arch(), "repositories", "liteldev-repo"),
+        path.join(os.projectdir(), "..", "MeowEntityModel", ".xmake", os.host(), os.arch(), "repositories", "liteldev-repo"),
+        path.join(os.projectdir(), "..", ".xmake", os.host(), os.arch(), "repositories", "liteldev-repo"),
+    }
+    for _, p in ipairs(candidates) do
+        if os.exists(p) then return p end
+    end
+    return nil
+end
+local local_repo = find_local_repo()
+if local_repo then
+    add_repositories("liteldev-repo " .. local_repo)
+else
+    add_repositories("liteldev-repo https://github.com/LiteLDev/xmake-repo.git")
+end
 
 if is_config("target_type", "server") then
     add_requires("levilamina 26.10.3", {configs = {target_type = "server"}})
@@ -10,6 +29,7 @@ else
 end
 
 add_requires("levibuildscript")
+-- legacyremotecall 不再需要：MeowPAPI 静态库通过 DLL 转发所有 RemoteCall 调用
 add_requires("magic_enum v0.9.7")
 
 if not has_config("vs_runtime") then
@@ -22,6 +42,9 @@ option("target_type")
     set_values("server", "client")
 option_end()
 
+-- 包含 MeowPAPI 静态库项目（使其成为可被 add_deps 引用的 target）
+includes("../MeowPAPI/xmake.lua")
+
 target("MeowMenu")
     add_rules("@levibuildscript/linkrule")
     add_rules("@levibuildscript/modpacker")
@@ -33,37 +56,38 @@ target("MeowMenu")
     set_kind("shared")
     set_languages("c++23")
 
-    -- Protocol v944 静态库
-    add_includedirs("../Protocol-v944/install/include")
-    add_linkdirs("../Protocol-v944/install/lib")
-    add_links("Protocol")
+    -- 依赖 MeowPAPI 静态库（PAPI 变量翻译）
+    add_deps("MeowPAPI")
+    add_includedirs("../MeowPAPI/include")
 
     -- 插件源文件
     add_headerfiles("src/MeowMenu.h")
     add_headerfiles("src/MenuData.h")
     add_headerfiles("src/Config.h")
     add_headerfiles("src/MenuStore.h")
-    add_headerfiles("src/FormManager.h")
-    add_headerfiles("src/FormSender.h")
-    add_headerfiles("src/FormResponseHook.h")
     add_headerfiles("src/ButtonHandler.h")
     add_headerfiles("src/MenuRenderer.h")
     add_headerfiles("src/TriggerItem.h")
     add_headerfiles("src/MenuEditor.h")
     add_headerfiles("src/EventRegistration.h")
+    add_headerfiles("src/IconValidator.h")
+    add_headerfiles("src/ItemTrigger.h")
+    add_headerfiles("src/MigrationManager.h")
+    add_headerfiles("src/ExportApi.h")
     add_files("src/MeowMenu.cpp")
     add_files("src/MenuData.cpp")
     add_files("src/Config.cpp")
     add_files("src/MenuStore.cpp")
-    add_files("src/FormManager.cpp")
-    add_files("src/FormSender.cpp")
-    add_files("src/FormResponseHook.cpp")
     add_files("src/ButtonHandler.cpp")
     add_files("src/MenuRenderer.cpp")
     add_files("src/TriggerItem.cpp")
     add_files("src/MenuEditor.cpp")
     add_files("src/CommandRegistration.cpp")
     add_files("src/EventRegistration.cpp")
+    add_files("src/IconValidator.cpp")
+    add_files("src/ItemTrigger.cpp")
+    add_files("src/MigrationManager.cpp")
+    add_files("src/ExportApi.cpp")
     add_files("src/MemoryOperators.cpp")
 
     add_includedirs("src")
@@ -75,3 +99,13 @@ target("MeowMenu")
     else
         add_defines("LL_PLAT_C")
     end
+
+    after_build(function (target)
+        local output_dir = "$(projectdir)/"
+        os.mkdir(output_dir)
+        os.cp(target:targetfile(), output_dir)
+        local pdb_file = path.join(path.directory(target:targetfile()), "MeowMenu.pdb")
+        if os.exists(pdb_file) then
+            os.cp(pdb_file, output_dir)
+        end
+    end)

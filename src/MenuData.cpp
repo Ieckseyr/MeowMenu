@@ -1,5 +1,6 @@
 // MenuData.cpp - 菜单与按钮数据结构序列化实现
 #include "MenuData.h"
+#include "IconValidator.h"
 
 namespace meowmenu {
 
@@ -11,6 +12,7 @@ nlohmann::json Button::toJson() const {
     nlohmann::json j;
     j["text"]  = text;
     if (!icon.empty()) j["icon"] = icon;
+    if (!iconItem.empty()) j["iconItem"] = iconItem;
     j["type"]  = type;
     j["value"] = value;
     if (!item.empty()) j["item"] = item;
@@ -19,11 +21,25 @@ nlohmann::json Button::toJson() const {
 
 Button Button::fromJson(nlohmann::json const& j) {
     Button b;
-    b.text  = j.value("text", "");
-    b.icon  = j.value("icon", "");
-    b.type  = j.value("type", "command");
-    b.value = j.value("value", "");
-    b.item  = j.value("item", "");
+    b.text     = j.value("text", "");
+    b.icon     = j.value("icon", "");
+    b.iconItem = j.value("iconItem", "");
+    b.type     = j.value("type", "command");
+    b.value    = j.value("value", "");
+    b.item     = j.value("item", "");
+
+    // 加载时校验并修复非法图标路径
+    // - 若 icon 是物品 ID（如 minecraft:dirt），转换为对应的纹理路径
+    // - 若 icon 是非法值（既非纹理路径也非物品 ID），清空
+    // - iconItem 保持原样，渲染时再解析
+    if (!b.icon.empty()) {
+        std::string normalized = IconValidator::getInstance().normalizeIcon(b.icon);
+        if (normalized != b.icon) {
+            // 图标被修复或清空
+            b.icon = normalized;
+        }
+    }
+
     return b;
 }
 

@@ -21,7 +21,9 @@ struct DogeUISettings {
 // 按钮数据
 struct Button {
     std::string text;      // 显示文本（支持 § 颜色码）
-    std::string icon;      // 图标纹理路径（如 textures/ui/icon_setting）
+    std::string icon;      // 图标纹理路径（如 textures/ui/icon_setting）— 文本填入
+    std::string iconItem;  // 图标物品 ID（如 minecraft:dirt）— 选择背包物品作为图标
+                           // 渲染优先级：icon 非空时使用 icon，否则使用 iconItem，两者都空则无图标
     std::string type;      // command | admin_command | submenu | admin_submenu | folder | spacer
     std::string value;     // 命令字符串 或 子菜单ID
     std::string item;      // 箱子UI物品（仅箱子模式使用，本版本忽略）

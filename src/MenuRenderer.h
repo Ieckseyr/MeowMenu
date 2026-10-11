@@ -1,11 +1,4 @@
-// MenuRenderer.h - 菜单渲染器
-//
-// 使用 LeviLamina SimpleForm API 渲染菜单表单，应用 DogeUI 标识符前缀。
-//
-// DogeUI 逻辑：
-// - 每个菜单可独立配置 dogeui.enabled 和 dogeui.prefix
-// - 启用时，将 prefix 前置到菜单标题
-// - 菜单未配置 dogeui 字段时，回退到全局 config.useDogeUI（仅主菜单生效）
+// MenuRenderer.h - 菜单渲染器（SimpleForm; DogeUI 前缀, 无 dogeui 字段时回退 config.useDogeUI）
 #pragma once
 
 #include <string>
@@ -14,14 +7,26 @@
 class Player;
 
 namespace meowmenu {
+struct Menu;
+}
+
+namespace meowmenu {
 
 class MenuRenderer {
 public:
     static MenuRenderer& getInstance();
 
-    // 渲染菜单并发送给玩家
+    // 渲染菜单并发送给玩家（按玩家样式 / 菜单模式自动分派: 表单 / NPC 对话 / 箱子）
     // menuId: 菜单ID
     void renderMenu(Player& player, std::string const& menuId);
+
+    // 延迟一个 tick 再渲染。点按钮 / 点击回包的回调内必须用这个:
+    // HologramLib 在回调返回后才会拆掉旧界面与载体, 同步重开会把刚开的界面一起删掉。
+    void renderMenuDeferred(Player& player, std::string const& menuId);
+
+    // 解析玩家当前应使用的界面样式: "form" / "npc" / "chest"
+    // 玩家自选样式（/mmenu ui）优先; 未设置时用菜单自身配置的模式
+    static std::string resolveUiMode(Player const& player, Menu const& menu);
 
 private:
     MenuRenderer() = default;

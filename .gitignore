@@ -1,4 +1,4 @@
-# xmake build artifacts
+# xmake 构建产物
 .xmake/
 build/
 bin/
@@ -9,7 +9,7 @@ bin/
 *.vcxproj.filters
 *.sln
 
-# Compiled files
+# 编译产物
 *.obj
 *.obj.d
 *.dll
@@ -20,8 +20,15 @@ bin/
 *.pdb
 *.ilk
 
-# Generated headers
-src/embedded_texture_path.h
+# 不进仓库: 文档/测试/示例（仅本机保留）
+docs/
+tests/
+scripts/
+
+# 本地备份 / 构建日志
+*.bak-*
+*.old-*
+build_log.txt
 
 # IDE
 .idea/
@@ -32,5 +39,8 @@ src/embedded_texture_path.h
 .DS_Store
 Thumbs.db
 
-# Logs
+# 日志
 *.log
+
+# 注: src/embedded_texture_path.h（编译期嵌入的图标库）随源码提交, 保证开箱即可构建;
+# 需重新生成时运行 gen_texture_path_embed.ps1。

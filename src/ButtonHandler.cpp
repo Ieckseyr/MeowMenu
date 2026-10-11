@@ -1,7 +1,9 @@
 // ButtonHandler.cpp - 按钮点击处理实现
 #include "ButtonHandler.h"
+#include "Config.h"
 #include "MenuStore.h"
 #include "MenuRenderer.h"
+#include "NpcMenuBridge.h"
 #include "MeowMenu.h"
 
 #include "meowpapi/PlaceholderApi.h"
@@ -113,7 +115,65 @@ void ButtonHandler::handleButton(Player& player, Button const& button) {
             return;
         }
         openSubMenu(player, button.value);
+    } else if (button.type == "npc_menu") {
+        openNpcMenu(player, button.value);
+    } else if (button.type == "npc_spawn") {
+        spawnNpcMenu(player, button.value, button.text);
+    } else {
+        // 未知类型: 明确提示而不是静默无反应（作者多半是类型名拼错了）
+        lib().getSelf().getLogger().warn("未知按钮类型: {} (文本={})", button.type, button.text);
+        player.sendMessage(
+            "§c[MeowMenu] 未知按钮类型: §6" + button.type
+            + "\n§7可用: command / admin_command / submenu / admin_submenu / folder / npc_menu / npc_spawn"
+        );
     }
+}
+
+//==== NPC 菜单按钮（HologramLib 可选前置） ====
+void ButtonHandler::openNpcMenu(Player& player, std::string const& menuId) {
+    auto& bridge = NpcMenuBridge::getInstance();
+    if (!bridge.isAvailable()) {
+        player.sendMessage(
+            "§c[MeowMenu] 此按钮需要 HologramLib（未安装或版本过低）\n§7可改用 §esubmenu §7类型以普通表单打开同一菜单"
+        );
+        return;
+    }
+    // 菜单不存在/玩家不在线时内部已提示
+    // 用延迟版: 这个按钮也可能是从 NPC 对话里点的, 那时必须等库拆完旧对话再开（时序见 NpcMenuBridge.cpp）
+    bridge.openDialogueDeferred(player, menuId);
+}
+
+void ButtonHandler::spawnNpcMenu(Player& player, std::string const& menuId, std::string const& npcName) {
+    auto& bridge = NpcMenuBridge::getInstance();
+    if (!bridge.canManageNpc()) {
+        player.sendMessage("§c[MeowMenu] 此按钮需要 HologramLib 的 NPC 域（未安装或版本过低）");
+        return;
+    }
+
+    // 未指定菜单时用主菜单; NPC 名默认取按钮文本（颜色码/换行由 NpcMenuBridge 统一清洗）
+    std::string id   = menuId.empty() ? ConfigManager::getInstance().getConfig().mainMenuId : menuId;
+    std::string name = npcName.empty() ? std::string("菜单NPC") : npcName;
+
+    int64_t npcId = bridge.spawnNpcNear(player, name, id);
+    if (npcId < 0) {
+        player.sendMessage(
+            "§c[MeowMenu] 菜单 NPC 生成失败: " + std::to_string(npcId)
+            + "\n§7-1 = 前置/参数或菜单不存在, -2 = id 占用, -3 = 皮肤采集失败（需在线玩家）"
+        );
+        return;
+    }
+
+    auto pos = player.getPosition();
+    player.sendMessage(fmt::format(
+        "§a[MeowMenu] 已生成菜单 NPC §b{}§a (id={})\n§7位置: §f({:.1f}, {:.1f}, {:.1f})§7 维度 §f{}\n§7右键点击它即可打开菜单 §f{}",
+        name,
+        npcId,
+        pos.x,
+        pos.y,
+        pos.z,
+        (int)player.getDimensionId(),
+        id
+    ));
 }
 
 } // namespace meowmenu

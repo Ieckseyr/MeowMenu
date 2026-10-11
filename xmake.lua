@@ -1,4 +1,4 @@
-add_rules("mode.debug", "mode.release")
+﻿add_rules("mode.debug", "mode.release")
 
 -- 优先使用本地缓存的 liteldev-repo，回退到 GitHub 远程
 -- 依次尝试：MeowMenu 自身、兄弟插件、根目录的本地仓库
@@ -23,9 +23,9 @@ else
 end
 
 if is_config("target_type", "server") then
-    add_requires("levilamina 26.10.3", {configs = {target_type = "server"}})
+    add_requires("levilamina 26.40.0", {configs = {target_type = "server"}})
 else
-    add_requires("levilamina 26.10.3", {configs = {target_type = "client"}})
+    add_requires("levilamina 26.40.0", {configs = {target_type = "client"}})
 end
 
 add_requires("levibuildscript")
@@ -72,8 +72,14 @@ target("MeowMenu")
     add_headerfiles("src/EventRegistration.h")
     add_headerfiles("src/IconValidator.h")
     add_headerfiles("src/ItemTrigger.h")
+    add_headerfiles("src/TriggerRouter.h")
+    add_headerfiles("src/ItemUseHook.h")
     add_headerfiles("src/MigrationManager.h")
     add_headerfiles("src/ExportApi.h")
+    -- HologramLib 可选前置: 仅镜像头文件, 不链接、不引用其 include 目录
+    add_headerfiles("src/HologramLibAbi.h")
+    add_headerfiles("src/NpcMenuBridge.h")
+    add_headerfiles("src/PlayerUiPref.h")
     add_files("src/MeowMenu.cpp")
     add_files("src/MenuData.cpp")
     add_files("src/Config.cpp")
@@ -82,11 +88,17 @@ target("MeowMenu")
     add_files("src/MenuRenderer.cpp")
     add_files("src/TriggerItem.cpp")
     add_files("src/MenuEditor.cpp")
+    add_files("src/MenuEditorTools.cpp")
     add_files("src/CommandRegistration.cpp")
     add_files("src/EventRegistration.cpp")
     add_files("src/IconValidator.cpp")
     add_files("src/ItemTrigger.cpp")
+    add_files("src/TriggerRouter.cpp")
+    add_files("src/ItemUseHook.cpp")
     add_files("src/MigrationManager.cpp")
+    add_files("src/NpcMenuBridge.cpp")
+    add_files("src/PlayerUiPref.cpp")
+    add_files("src/PlayerRecord.cpp")
     add_files("src/ExportApi.cpp")
     add_files("src/MemoryOperators.cpp")
 

@@ -1,18 +1,14 @@
-// IconValidator.cpp - 图标路径校验与修复实现
-//
-// 数据源：运行时读取 plugins/Meow/textures/texture_path.json（外部图标库）。
-// 文件缺失时 mReady 保持 false，normalizeIcon 原样返回图标（菜单仍可用，仅跳过校验）。
+// IconValidator.cpp - 图标路径校验/修复（数据源 = 编译期嵌入的 embedded_texture_path.h）
 #include "IconValidator.h"
 #include "MeowMenu.h"
+#include "embedded_texture_path.h"
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cctype>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <string>
+#include <unordered_set>
 
 namespace meowmenu {
 
@@ -42,31 +38,13 @@ IconValidator& IconValidator::getInstance() {
 bool IconValidator::initialize() {
     if (mReady) return true;
 
-    // 外部图标库路径（相对服务器工作目录）
-    static constexpr const char* TEXTURE_PATH_FILE =
-        "plugins/Meow/textures/texture_path.json";
-
     try {
-        if (!std::filesystem::exists(TEXTURE_PATH_FILE)) {
-            lib().getSelf().getLogger().error(
-                "IconValidator: texture path file not found: {}", TEXTURE_PATH_FILE);
-            return false;
-        }
-
-        // 读取文件内容
-        std::ifstream ifs(TEXTURE_PATH_FILE);
-        if (!ifs.is_open()) {
-            lib().getSelf().getLogger().error(
-                "IconValidator: cannot open {}", TEXTURE_PATH_FILE);
-            return false;
-        }
-        std::stringstream ss;
-        ss << ifs.rdbuf();
-        auto j = nlohmann::json::parse(ss.str());
+        // 分块嵌入的 JSON 先拼接还原，再交给 nlohmann 解析
+        auto j = nlohmann::json::parse(embedded_texture_path::text());
 
         if (!j.is_object()) {
             lib().getSelf().getLogger().error(
-                "IconValidator: {} is not a JSON object", TEXTURE_PATH_FILE);
+                "IconValidator: embedded texture data is not a JSON object");
             return false;
         }
 
@@ -79,25 +57,36 @@ bool IconValidator::initialize() {
             texPath = trim(texPath);
             if (texPath.empty()) continue;
 
-            mItemToTexture.emplace(std::move(itemId), std::move(texPath));
+            mItemToTexture.emplace(itemId, texPath);
             // 同时记录到纹理路径集合（用于快速校验）
-            mTexturePaths.insert(it.value().is_string() ? it.value().get<std::string>() : "");
+            mTexturePaths.insert(texPath);
             count++;
         }
 
         mReady = true;
         lib().getSelf().getLogger().info(
-            "IconValidator: loaded {} texture path entries (from {})", count, TEXTURE_PATH_FILE);
+            "IconValidator: loaded {} texture path entries (embedded at build time)", count);
         return true;
     } catch (std::exception const& e) {
         lib().getSelf().getLogger().error(
-            "IconValidator: failed to parse {}: {}", TEXTURE_PATH_FILE, e.what());
+            "IconValidator: failed to parse embedded texture data: {}", e.what());
         return false;
     } catch (...) {
         lib().getSelf().getLogger().error(
-            "IconValidator: unknown error parsing {}", TEXTURE_PATH_FILE);
+            "IconValidator: unknown error parsing embedded texture data");
         return false;
     }
+}
+
+std::vector<std::string> IconValidator::getAllTexturePaths() const {
+    std::unordered_set<std::string> unique;
+    for (auto const& entry : mItemToTexture) {
+        std::string const& path = entry.second;
+        if (path.rfind("textures/", 0) == 0) unique.insert(path);
+    }
+    std::vector<std::string> out(unique.begin(), unique.end());
+    std::sort(out.begin(), out.end());
+    return out;
 }
 
 bool IconValidator::isValidTexturePath(std::string const& path) const {

@@ -1,11 +1,5 @@
-// ItemTrigger.h - 自定义物品→菜单触发注册表
-//
-// 允许 LSE 通过 RemoteCall API 动态注册「使用某物品打开某菜单」的绑定。
-// 与硬编码的 TriggerItem（minecraft:clock）独立并存，互不影响。
-//
-// 匹配规则：按手持物品的 getTypeName()（如 "minecraft:compass"）精确匹配。
-// 持久化：绑定写入 Meowdata/MeowMenu/item_triggers.json，重启后保留。
-// 空注册表时仅一次哈希查找，无额外开销。
+// ItemTrigger.h - 自定义物品→菜单绑定（LSE 注册; 与主菜单触发物品独立）
+// 按 getTypeName() 精确匹配; 持久化到 Meowdata/MeowMenu/item_triggers.json。
 #pragma once
 
 #include <shared_mutex>
@@ -21,10 +15,7 @@ public:
     // 从磁盘加载 item_triggers.json（文件不存在则创建空注册表）
     void initialize();
 
-    // 注册物品类型→菜单绑定（持久化，幂等）
-    // itemType: 物品类型 ID（如 "minecraft:compass"）
-    // menuId:    要打开的菜单 ID
-    // 返回是否写入成功（与原值不同时返回 true）
+    // 注册物品类型→菜单绑定（持久化, 幂等）; 返回是否写入成功
     bool registerTrigger(std::string const& itemType, std::string const& menuId);
 
     // 解绑指定物品类型

@@ -1,9 +1,4 @@
-// TriggerItem.cpp - 触发物品系统实现
-//
-// 给予方式：Player::add（走完整 InventoryTransactionManager 事务系统，保证物品可移动）
-//           + Player::refreshInventory（强制全包同步，确保客户端立即可见）
-// 单格 InventorySlotPacket 仅用于 clearItem 清空槽位场景。
-// 物品 NBT 硬编码，严格固定，不允许通过配置改动。
+// TriggerItem.cpp - 触发物品（主菜单钥匙）的发放/检查/清除; 属性来自 config.triggerItem
 #include "TriggerItem.h"
 #include "Config.h"
 #include "MeowMenu.h"
@@ -24,96 +19,134 @@
 
 namespace meowmenu {
 
-// 菜单触发物品类型（与 NBT 中的 Name 一致）
-static constexpr const char* MENU_ITEM_TYPE = "minecraft:clock";
+// 主菜单触发物品类型（config.triggerItem.type；空则回落 minecraft:clock）
+static std::string menuItemType() {
+    auto const& cfg = ConfigManager::getInstance().getConfig();
+    return cfg.triggerItem.type.empty() ? std::string("minecraft:clock") : cfg.triggerItem.type;
+}
 
-// 菜单触发物品的唯一 NBT（严格固定，不允许使用其他 NBT）
-// minecraft:clock，自定义名"§r§4服§6务§g器§a菜§b单"，含电脑/手机使用说明 Lore，
-// minecraft:keep_on_death=1b（死亡不掉落）
-static constexpr const char* MENU_ITEM_SNBT =
-    "{\"Count\":1b,\"Damage\":0s,\"Name\":\"minecraft:clock\",\"WasPickedUp\":0b,"
-    "\"tag\":{\"RepairCost\":0,"
-    "\"display\":{\"Lore\":["
-    "\"§a§[电脑]▶§4- §r§l 手持右键即可打开菜单\","
-    "\"§b§[手机]▶§4- §r§l 手持长按或点击地面即可打开菜单\""
-    "],\"Name\":\"§r§4服§6务§g器§a菜§b单\"},"
-    "\"minecraft:keep_on_death\":1b}}";
+// 主菜单触发物品 SNBT（config.triggerItem.snbt；空则用内置默认 kDefaultTriggerSnbt）
+static std::string menuItemSnbt() {
+    auto const& cfg = ConfigManager::getInstance().getConfig();
+    if (!cfg.triggerItem.snbt.empty()) return cfg.triggerItem.snbt;
+
+    // 留空 = 内置默认; 若 type 改成了别的物品, 把默认模板里的 Name 跟着换成 type
+    // （否则发出去的还是钟, 与按 type 的触发判定对不上）
+    std::string snbt = kDefaultTriggerSnbt;
+    std::string type = menuItemType();
+    if (type != "minecraft:clock") {
+        std::string const from = "\"Name\":\"minecraft:clock\"";
+        auto              pos  = snbt.find(from);
+        if (pos != std::string::npos) {
+            snbt.replace(pos, from.size(), "\"Name\":\"" + type + "\"");
+        }
+    }
+    return snbt;
+}
 
 // 检查物品类型是否为菜单触发物品
-static bool isMenuTypeMatch(ItemStack const& item) {
+static bool isMenuTypeMatch(ItemStackBase const& item) {
     try {
-        return item.getTypeName() == MENU_ITEM_TYPE;
+        return item.getTypeName() == menuItemType();
     } catch (...) {
         return false;
     }
 }
 
-// 从硬编码 SNBT 创建菜单物品
+// 从 config 指定的 SNBT 创建菜单物品
 static ItemStack createMenuItem() {
+    auto& logger = lib().getSelf().getLogger();
+
+    auto build = [](std::string const& snbt) -> ItemStack {
+        try {
+            auto tagOpt = CompoundTag::fromSnbt(snbt);
+            if (tagOpt.has_value()) {
+                return ItemStack::fromTag(tagOpt.value());
+            }
+        } catch (...) {}
+        return ItemStack{};
+    };
+
+    ItemStack item = build(menuItemSnbt());
+    if (item.isNull()) {
+        logger.warn("触发物品 SNBT 无效（config.triggerItem.snbt）→ 本次改用内置默认 clock");
+        item = build(kDefaultTriggerSnbt);
+        if (item.isNull()) return ItemStack{}; // 内置 SNBT 也失败（理论上不会发生）
+    }
+
+    // SNBT 内 Name 与 triggerItem.type 不一致时，发出的物品按类型匹配识别不出来 —— 明确告警
+    std::string typeName;
     try {
-        auto tagOpt = CompoundTag::fromSnbt(MENU_ITEM_SNBT);
-        if (tagOpt.has_value()) {
-            return ItemStack::fromTag(tagOpt.value());
-        }
+        typeName = item.getTypeName();
     } catch (...) {}
-    return ItemStack{};
+    if (!typeName.empty() && typeName != menuItemType()) {
+        logger.warn(
+            "config.triggerItem.type={} 与 SNBT 内 Name={} 不一致：触发判定按 type，发出的物品将无法打开菜单",
+            menuItemType(),
+            typeName
+        );
+    }
+
+    int count = ConfigManager::getInstance().getConfig().triggerItem.count;
+    if (count >= 1 && static_cast<uchar>(count) != item.mCount) {
+        try {
+            item.set(count);
+        } catch (...) {}
+    }
+    return item;
 }
 
 // 向指定槽位发送单格同步包（客户端立即看到该格变化，无需全包 refreshInventory）
 static void sendSlotPacket(Player& player, int slot, ItemStack const& item) {
     try {
-        InventorySlotPacket pkt(ContainerID::Inventory, static_cast<uint>(slot), item);
+        // 26.32: InventorySlotPacket 3 参构造移至 Payload
+        InventorySlotPacket pkt{::InventorySlotPacketPayload(ContainerID::Inventory, slot, item)};
         player.sendNetworkPacket(pkt);
     } catch (...) {}
 }
 
-void TriggerItem::giveItem(Player& player, bool isJoin) {
+bool TriggerItem::giveItem(Player& player, bool isJoin) {
     auto const& cfg = ConfigManager::getInstance().getConfig();
-    if (!cfg.giveUs.enabled) return;
+    if (!cfg.giveUs.enabled) return false;
 
-    // 检查背包是否已有菜单物品
+    // 背包里已经有菜单物品：目标已达成（进服路径不提示；手动路径提示一句）
     if (hasItemInInventory(player)) {
         if (!isJoin) {
             player.sendMessage(formatMessage(cfg.giveUs.msgAlreadyHave));
         }
-        return;
+        return true;
     }
 
-    // 从硬编码 NBT 创建物品（严格使用唯一 NBT）
+    // 从 config 指定的 SNBT 创建物品
     ItemStack item = createMenuItem();
     if (item.isNull()) {
-        player.sendMessage("§c[MeowMenu] 创建菜单物品失败");
-        return;
+        player.sendMessage("§c[MeowMenu] 创建菜单物品失败（检查 config.triggerItem.snbt）");
+        return false;
     }
 
-    // 通过 Player::add 走完整背包事务系统（InventoryTransactionManager），
-    // 确保物品在客户端可正常移动。
-    // 旧实现用 inventory.setItem + 手动 InventorySlotPacket 绕过事务管理器，
-    // 导致客户端能显示但无法移动（事务管理器视图过期，移动请求被服务端拒绝）。
+    // 走 Player::add 事务系统, 客户端才能正常移动这件物品
     ItemStack toAdd = item;
     bool added = false;
     try {
         added = player.add(toAdd);
     } catch (...) {
         player.sendMessage("§c[MeowMenu] 写入背包失败");
-        return;
+        return false;
     }
 
     if (!added) {
         // 背包已满（add 返回 false 表示未能完整放入）
         player.sendMessage(formatMessage(cfg.giveUs.msgInventoryFull));
-        return;
+        return false;
     }
 
-    // 强制刷新客户端背包（全包同步）
-    // 进服给予时（PlayerJoinEvent 后 500ms），player.add 触发的单格同步包可能
-    // 因客户端初始背包加载流程未完成而被覆盖/丢失，导致物品写入服务端但客户端不可见。
-    // 此处主动 refreshInventory 重新发送完整背包，确保玩家立即可见。
+    // 进服时单格同步可能被客户端初始加载覆盖, 这里全量刷新一次背包
     try {
         player.refreshInventory();
     } catch (...) {}
 
     player.sendMessage(formatMessage(cfg.giveUs.msgReceived));
+    return true;
 }
 
 bool TriggerItem::hasItemInInventory(Player& player) {
@@ -159,11 +192,15 @@ bool TriggerItem::isTriggerItem(Player& player) {
     try {
         // 获取手持物品
         auto& item = player.getCarriedItem();
-        if (item.isNull()) return false;
-        return isMenuTypeMatch(item);
+        return isTriggerItem(item);
     } catch (...) {
         return false;
     }
+}
+
+bool TriggerItem::isTriggerItem(ItemStackBase const& item) {
+    if (item.isNull()) return false;
+    return isMenuTypeMatch(item);
 }
 
 std::string TriggerItem::formatMessage(std::string const& template_) {

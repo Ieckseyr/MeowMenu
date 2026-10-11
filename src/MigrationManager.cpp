@@ -1,6 +1,4 @@
-// MigrationManager.cpp - 菜单配置迁移/导入实现
-//
-// 移植自 JS 版 MigrationManager，逻辑与字段映射保持一致。
+// MigrationManager.cpp - 外部菜单格式导入实现
 #include "MigrationManager.h"
 #include "MenuStore.h"
 #include "IconValidator.h"

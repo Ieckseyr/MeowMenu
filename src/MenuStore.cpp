@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <utility>
+#include <vector>
 
 namespace meowmenu {
 
@@ -45,10 +47,7 @@ Menu MenuStore::makeDefaultMainMenu(std::string const& id) {
 
 bool MenuStore::isDefaultMainMenu(Menu const& menu) {
     auto def = makeDefaultMainMenu(menu.id);
-    // 仅比较 title + content：
-    // 1) 兼容历史字段错位版本（按钮字段曾错位，但 title/content 不变）
-    // 2) 跨重启稳定（默认菜单保存到磁盘后再加载，title/content 仍为默认值）
-    // 管理员若改过标题或内容，即视为已自定义，迁移时跳过
+    // 仅比较 title + content: 兼容历史字段错位, 管理员改过标题/内容则视为已自定义
     return menu.title == def.title && menu.content == def.content;
 }
 
@@ -110,6 +109,53 @@ void MenuStore::loadAll() {
     }
 
     lib().getSelf().getLogger().info("已加载 {} 个菜单", count);
+
+    // 分级体检: 主菜单恒一级（否则玩家手里的钟失效）; 二级配了触发物品 = 白写, 提示一下
+    bool                                           mainWasSecondary = false;
+    std::vector<std::pair<std::string, std::string>> secondaryWithTrigger; // id, 触发物品类型
+    {
+        std::shared_lock lock(mMutex);
+        for (auto const& [id, menu] : mMenus) {
+            if (!menu) continue;
+            if (id == cfg.mainMenuId) {
+                mainWasSecondary = menu->isSecondary();
+                continue;
+            }
+            if (menu->isSecondary() && menu->triggerItem.configured()) {
+                secondaryWithTrigger.emplace_back(id, menu->triggerItem.type);
+            }
+        }
+    }
+
+    if (mainWasSecondary) {
+        if (auto main = getMenu(cfg.mainMenuId)) {
+            Menu local  = *main;
+            local.level = 1;
+            saveMenu(local);
+            lib().getSelf().getLogger().warn(
+                "主菜单 {} 被配置成二级菜单 → 已强制改回一级菜单（主菜单的触发物品是钟）",
+                cfg.mainMenuId
+            );
+        }
+    }
+    for (auto const& [id, type] : secondaryWithTrigger) {
+        lib().getSelf().getLogger().warn(
+            "菜单 {} 是二级菜单, 但它配置了触发物品 {} → 不生效（二级菜单只能从其它菜单进入）",
+            id,
+            type
+        );
+    }
+}
+
+std::string MenuStore::findMenuByTriggerItem(std::string const& itemType) const {
+    if (itemType.empty()) return "";
+
+    std::shared_lock lock(mMutex);
+    for (auto const& [id, menu] : mMenus) {
+        // Menu::matchesTriggerItem 内部已处理"二级菜单不生效"与大小写
+        if (menu && menu->matchesTriggerItem(itemType)) return id;
+    }
+    return "";
 }
 
 std::shared_ptr<Menu> MenuStore::getMenu(std::string const& id) const {
@@ -119,7 +165,12 @@ std::shared_ptr<Menu> MenuStore::getMenu(std::string const& id) const {
     return nullptr;
 }
 
-bool MenuStore::createMenu(std::string const& id, std::string const& title, std::string const& content) {
+bool MenuStore::createMenu(
+    std::string const& id,
+    std::string const& title,
+    std::string const& content,
+    int                level
+) {
     {
         std::shared_lock lock(mMutex);
         if (mMenus.find(id) != mMenus.end()) return false;
@@ -129,6 +180,7 @@ bool MenuStore::createMenu(std::string const& id, std::string const& title, std:
     m.id      = id;
     m.title   = title.empty() ? id : title;
     m.content = content;
+    m.level   = (level == 2) ? 2 : 1; // 只认 1 / 2, 其余按一级
     return saveMenu(m);
 }
 

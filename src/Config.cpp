@@ -44,6 +44,7 @@ void ConfigManager::load() {
         mConfig.useDogeUI   = j.value("useDogeUI", false);
         mConfig.mainMenuId  = j.value("mainMenuId", "main");
         mConfig.allowPlayerModeChoice = j.value("allowPlayerModeChoice", false);
+        mConfig.chestInPlaceRefresh   = j.value("chestInPlaceRefresh", true);
 
         // 仅支持 static 模式，chestUI/视频/轮播等模式已放弃；提示用户配置将被忽略
         if (mConfig.displayMode != "static") {
@@ -83,8 +84,14 @@ void ConfigManager::load() {
             }
         }
 
-        lib().getSelf().getLogger().info("配置加载完成: displayMode={}, mainMenuId={}",
-                                         mConfig.displayMode, mConfig.mainMenuId);
+        // menuLevel（菜单分级全局默认值; 每个菜单自己的分级在 data/<id>.json 的 level 字段）
+        if (j.contains("menuLevel") && j["menuLevel"].is_object()) {
+            mConfig.menuLevel.defaultLevel = j["menuLevel"].value("defaultLevel", 1);
+            if (mConfig.menuLevel.defaultLevel != 2) mConfig.menuLevel.defaultLevel = 1;
+        }
+
+        lib().getSelf().getLogger().info("配置加载完成: displayMode={}, mainMenuId={}, 新建菜单默认分级={}级",
+                                         mConfig.displayMode, mConfig.mainMenuId, mConfig.menuLevel.defaultLevel);
     } catch (std::exception const& e) {
         lib().getSelf().getLogger().error("加载配置失败: {}，使用默认配置", e.what());
     }
@@ -101,6 +108,7 @@ void ConfigManager::save() {
         j["useDogeUI"]            = mConfig.useDogeUI;
         j["mainMenuId"]           = mConfig.mainMenuId;
         j["allowPlayerModeChoice"] = mConfig.allowPlayerModeChoice;
+        j["chestInPlaceRefresh"]   = mConfig.chestInPlaceRefresh;
 
         j["triggerItem"]["type"]        = mConfig.triggerItem.type;
         j["triggerItem"]["displayName"] = mConfig.triggerItem.displayName;
@@ -116,6 +124,8 @@ void ConfigManager::save() {
         j["giveUs"]["messages"]["alreadyHave"]   = mConfig.giveUs.msgAlreadyHave;
         j["giveUs"]["messages"]["inventoryFull"] = mConfig.giveUs.msgInventoryFull;
         j["giveUs"]["messages"]["cleared"]       = mConfig.giveUs.msgCleared;
+
+        j["menuLevel"]["defaultLevel"] = mConfig.menuLevel.defaultLevel;
 
         std::ofstream ofs(mConfigPath);
         ofs << j.dump(2);

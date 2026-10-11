@@ -1,15 +1,13 @@
-// EventRegistration.cpp - 事件注册实现
-//
-// 监听事件：
-// 1. PlayerJoinEvent - 玩家进服时自动给予触发物品
-// 2. PlayerInteractBlockEvent - 右键方块时检测触发物品并打开菜单
-// 3. PlayerUseItemEvent - 右键空气时检测触发物品并打开菜单
+// EventRegistration.cpp - 事件注册（进服发放 / 右键触发）
 #include "EventRegistration.h"
 #include "Config.h"
 #include "TriggerItem.h"
-#include "ItemTrigger.h"
-#include "MenuRenderer.h"
+#include "TriggerRouter.h"
+#include "PlayerRecord.h"
 #include "MeowMenu.h"
+
+// 26.40 事件 ID 对齐: 必须在注册监听器之前 include（缺了监听器会全部静默失效）
+#include "EventIdCompat.h"
 
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/player/PlayerJoinEvent.h"
@@ -23,62 +21,42 @@
 #include <mc/world/level/Level.h>
 
 #include <chrono>
-#include <mutex>
-#include <unordered_map>
 
 namespace meowmenu {
 
-// 使用冷却（防止快速重复触发）
-static std::mutex                                       gCooldownMutex;
-static std::unordered_map<std::string, int64_t>         gUseCooldown;
-static constexpr int64_t COOLDOWN_MS = 100; // 0.1秒冷却
+namespace {
 
-static bool checkCooldown(std::string const& playerKey) {
-    auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()
+long long nowSeconds() {
+    return std::chrono::duration_cast<std::chrono::seconds>(
+               std::chrono::system_clock::now().time_since_epoch()
     ).count();
-
-    std::lock_guard lock(gCooldownMutex);
-    auto last = gUseCooldown.find(playerKey);
-    if (last != gUseCooldown.end() && (now - last->second) < COOLDOWN_MS) {
-        return false; // 冷却中
-    }
-    gUseCooldown[playerKey] = now;
-    return true;
 }
 
-// 解析玩家手持物品应打开的菜单 ID
-// 优先级：
-//   1. 硬编码 clock 触发物品 → config.mainMenuId
-//   2. LSE 注册的自定义物品触发（ItemTrigger）→ 对应 menuId
-//   3. 无匹配 → 返回空串
-static std::string resolveTriggerMenu(Player& player) {
-    // 1. 硬编码 clock 触发物品
-    if (TriggerItem::isTriggerItem(player)) {
-        auto const& cfg = ConfigManager::getInstance().getConfig();
-        return cfg.mainMenuId;
-    }
+// 按名字找在线玩家（进服 500ms 延迟后重新取；名字比 IP:port 可靠 —— 同 IP 多号/重连都不会找错人）
+Player* findPlayerByName(std::string const& name) {
+    auto level = ll::service::getLevel();
+    if (!level.has_value()) return nullptr;
 
-    // 2. 自定义物品触发（LSE 注册）
-    try {
-        auto& carried = player.getCarriedItem();
-        if (!carried.isNull()) {
-            std::string itemType = carried.getTypeName();
-            if (!itemType.empty()) {
-                std::string menuId = ItemTrigger::getInstance().findMenuId(itemType);
-                if (!menuId.empty()) return menuId;
+    Player* found = nullptr;
+    level->forEachPlayer([&](Player& p) -> bool {
+        try {
+            if (p.getRealName() == name) {
+                found = &p;
+                return true;
             }
-        }
-    } catch (...) {}
-
-    return "";
+        } catch (...) {}
+        return false;
+    });
+    return found;
 }
+
+} // namespace
 
 void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
     auto& logger = lib().getSelf().getLogger();
     auto& bus    = ll::event::EventBus::getInstance();
 
-    //=== 1. 玩家进服 - 自动给予触发物品 ===
+    // 玩家进服: 一次性发放触发物品（players.json 里记过账的直接跳过）
     auto joinListener = bus.emplaceListener<ll::event::player::PlayerJoinEvent>(
         [](ll::event::player::PlayerJoinEvent& event) {
             auto& player = event.self();
@@ -86,24 +64,37 @@ void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
 
             if (!cfg.giveUs.enabled || !cfg.giveUs.giveOnJoin) return;
 
+            std::string name;
+            try {
+                name = player.getRealName();
+            } catch (...) {}
+            if (name.empty()) return;
+
+            auto& store = PlayerRecordStore::getInstance();
+
+            // 发过 = 不用管（这就是"不需要每次进服重复检查"的开关）
+            if (store.menuGiven(name)) return;
+
+            // 首次进服登记（顺便补全 missing 字段），便于管理员查看新玩家
+            if (store.noteFirstJoin(name, nowSeconds())) {
+                lib().getSelf().getLogger().info("首次进服玩家: {}（已登记到 players.json）", name);
+            }
+
             // 延迟 500ms 给予物品（等待玩家完全加载）
-            auto playerKey = player.getNetworkIdentifier().getIPAndPort();
             ll::thread::ServerThreadExecutor::getDefault().executeAfter(
-                [playerKey]() {
-                    auto level = ll::service::getLevel();
-                    if (!level.has_value()) return;
+                [name]() {
+                    Player* player = findPlayerByName(name);
+                    if (!player) return; // 已离线
 
-                    Player* player = nullptr;
-                    level->forEachPlayer([&](Player& p) -> bool {
-                        if (p.getNetworkIdentifier().getIPAndPort() == playerKey) {
-                            player = &p;
-                            return true;
-                        }
-                        return false;
-                    });
-
-                    if (player) {
-                        TriggerItem::giveItem(*player, true);
+                    if (TriggerItem::giveItem(*player, true)) {
+                        PlayerRecordStore::getInstance().markMenuGiven(name, nowSeconds());
+                        lib().getSelf().getLogger().info("进服发放: {} 已取得菜单物品（记账于 players.json）", name);
+                    } else {
+                        // 不记账 → 下次进服自动重试；也给一条手动路径
+                        lib().getSelf().getLogger().warn(
+                            "进服发放失败: {}（背包满或物品创建失败 → 不记账, 下次进服重试; 可手动输入 /mmenu 获取）",
+                            name
+                        );
                     }
                 },
                 std::chrono::milliseconds(500)
@@ -112,26 +103,17 @@ void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
     );
     mListenerPtrs.push_back(joinListener);
 
-    //=== 2. 右键方块 - 检测触发物品 ===
+    // 右键方块: 触发物品打开菜单, 并取消方块交互
     auto interactListener = bus.emplaceListener<ll::event::PlayerInteractBlockEvent>(
         [](ll::event::PlayerInteractBlockEvent& event) {
             auto& player = event.self();
 
-            // 解析手持物品应打开的菜单（硬编码 clock 或 LSE 自定义触发）
-            std::string menuId = resolveTriggerMenu(player);
-            if (menuId.empty()) return; // 无触发物品
-
-            // 冷却检查
-            auto playerKey = player.getNetworkIdentifier().getIPAndPort();
-            if (!checkCooldown(playerKey)) {
-                event.cancel();
-                return;
+            // 解析手持物品应打开的菜单（主菜单触发物品 或 LSE 自定义触发）
+            if (!tryTriggerMenu(player, event.item())) {
+                return; // 无触发物品
             }
 
-            // 打开菜单
-            MenuRenderer::getInstance().renderMenu(player, menuId);
-
-            // 取消事件（阻止方块交互）
+            // 取消事件（阻止方块交互，菜单代替箱子/门等交互）
             event.cancel();
         }
     );
@@ -142,21 +124,12 @@ void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
         [](ll::event::PlayerUseItemEvent& event) {
             auto& player = event.self();
 
-            // 解析手持物品应打开的菜单（硬编码 clock 或 LSE 自定义触发）
-            std::string menuId = resolveTriggerMenu(player);
-            if (menuId.empty()) return; // 无触发物品
-
-            // 冷却检查
-            auto playerKey = player.getNetworkIdentifier().getIPAndPort();
-            if (!checkCooldown(playerKey)) {
-                event.cancel();
-                return;
+            // 解析手持物品应打开的菜单（主菜单触发物品 或 LSE 自定义触发）
+            if (!tryTriggerMenu(player, event.item())) {
+                return; // 无触发物品
             }
 
-            // 打开菜单
-            MenuRenderer::getInstance().renderMenu(player, menuId);
-
-            // 取消事件
+            // 取消事件（触发物不被真的使用）
             event.cancel();
         }
     );

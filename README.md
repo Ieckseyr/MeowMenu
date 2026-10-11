@@ -21,7 +21,7 @@ BDS / LeviLamina 服务器菜单插件（C++ 实现，替代早期 JS 版 ——
 
 - BDS **1.26.40**（协议 2168）+ **LeviLamina 26.40**
 - **LegacyRemoteCall**（RemoteCall API）
-- **HologramLib**（可选前置）—— NPC 对话菜单 / 箱子界面 / NPC 生成需要；缺失时本插件照常加载，仅这几项功能禁用
+- **HologramLib 26.40.8+**（可选前置）—— NPC 对话菜单 / 箱子界面 / NPC 生成需要；缺失时本插件照常加载，仅这几项功能禁用
 - 变量翻译（`%name%` / `{name}` / `{player}`）内置，无需额外安装
 
 ## 安装

@@ -35,6 +35,7 @@ BDS / LeviLamina 服务器菜单插件（C++ 实现，替代早期 JS 版 ——
 |------|------|------|
 | `/mmenu` | 所有玩家 | 打开主菜单 |
 | `/mmenu ui [样式]` | 所有玩家 | 选择界面样式：`auto`（跟随菜单）/ `form` / `npc` / `chest` |
+| `/mmenu mode` | 所有玩家 | `/mmenu ui` 的兼容别名 |
 | `/mmenu admin` | OP | 打开菜单编辑器 |
 | `/mmenu reload` | OP | 热重载配置与菜单数据 |
 | `/mmgv` | 所有玩家 | 获取菜单触发物品 |

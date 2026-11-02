@@ -1,4 +1,7 @@
-// MenuRenderer.cpp - 菜单渲染器（SimpleForm; DogeUI 前缀 + MeowPAPI 翻译）
+// MenuRenderer.cpp - 菜单渲染器实现
+//
+// 使用 LeviLamina SimpleForm API 发送表单给玩家。
+// 应用 DogeUI 标识符前缀到标题，支持 MeowPAPI 变量翻译（标题、内容、按钮文本）。
 #include "MenuRenderer.h"
 #include "Config.h"
 #include "MenuStore.h"
@@ -153,7 +156,10 @@ void MenuRenderer::renderMenu(Player& player, std::string const& menuId) {
 
         std::string translatedText = papi.translateStringWithPlayer(btn.text, &player);
 
-        // 显示项（不可点击）: header 大字标题 / label 文本行 / divider 分隔线
+        // 显示项类型（非按钮, 不可点击）:
+        //   header  —— 大字体标题行（原版表单 header 样式）
+        //   label   —— 普通文本行
+        //   divider —— 分隔线（text 字段忽略）
         if (btn.type == "header") {
             form.appendHeader(translatedText);
             continue;

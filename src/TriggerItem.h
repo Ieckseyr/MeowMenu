@@ -1,4 +1,9 @@
-// TriggerItem.h - 触发物品的发放/检查/清除
+// TriggerItem.h - 触发物品系统
+//
+// 管理菜单触发物品（minecraft:clock）的给予、检查、清除。
+// 物品 NBT 硬编码于 TriggerItem.cpp（严格固定，不读 config.snbt）。
+// 给予采用 Player::add（事务系统）+ refreshInventory（全包同步），确保可见且可移动。
+// 玩家进服自动给予（每次进服检查背包，无 clock 才给予）。
 #pragma once
 
 #include <string>
@@ -11,8 +16,9 @@ namespace meowmenu {
 
 class TriggerItem {
 public:
-    // 给予触发物品; isJoin = 进服自动发放（不弹"已拥有"）; 返回玩家现在是否持有
-    static bool giveItem(Player& player, bool isJoin);
+    // 给予玩家触发物品
+    // isJoin: 是否为进服自动给予（true 时不显示"已拥有"消息）
+    static void giveItem(Player& player, bool isJoin);
 
     // 检查玩家背包是否有触发物品
     static bool hasItemInInventory(Player& player);

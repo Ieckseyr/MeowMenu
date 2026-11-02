@@ -1,5 +1,14 @@
-// ButtonHandler.h - 按钮点击处理（command / admin_command / submenu / admin_submenu /
-// folder / npc_menu / npc_spawn / header / label / divider / spacer）
+// ButtonHandler.h - 按钮点击处理
+//
+// 处理菜单按钮点击事件，支持以下按钮类型：
+// - command: 以玩家身份执行命令（支持 {player} 变量替换）
+// - admin_command: OP 权限检查后执行命令
+// - submenu: 打开子菜单（表单）
+// - admin_submenu: OP 权限检查后打开子菜单
+// - folder: 自动创建子菜单并打开
+// - npc_menu: 以 HologramLib 的 NPC 对话形式打开菜单（可选前置, 见 NPC_MENU.md）
+// - npc_spawn: 在身前生成一只"点击即打开菜单"的 NPC（可选前置）
+// - spacer: 空格（仅箱子UI，本版本跳过）
 #pragma once
 
 #include "MenuData.h"
@@ -14,9 +23,13 @@ namespace meowmenu {
 class ButtonHandler {
 public:
     // 处理按钮点击
+    // player: 点击按钮的玩家
+    // button: 按钮数据
     static void handleButton(Player& player, Button const& button);
 
-    // 按钮动作执行原语（表单路径走 handleButton; NPC 对话路径需单独判断子菜单类型）
+    // 以下为按钮动作的执行原语。表单路径走 handleButton；
+    // NPC 对话菜单（NpcMenuBridge）需要在执行前判断子菜单类型以推进对话层级，故单独暴露。
+    // 执行命令（以玩家身份，支持 {player} 与 PAPI 变量替换）
     static void executeCommand(Player& player, std::string const& command);
 
     // 执行管理员命令（OP 权限检查）

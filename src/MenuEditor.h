@@ -1,4 +1,14 @@
-// MenuEditor.h - 管理员工菜单编辑器（/mmenu admin; LeviLamina Form API）
+// MenuEditor.h - 管理员工菜单编辑器
+//
+// 使用 LeviLamina Form API（自动处理 formId 和回调）。
+// 仅管理员可访问，通过 /mmenu admin 打开。
+//
+// 功能：
+// - 菜单列表（查看/编辑/删除）
+// - 编辑菜单标题、内容
+// - 添加/编辑/删除按钮
+// - DogeUI 设置（每菜单独立的启用开关和自定义前缀）
+// - 触发物品设置
 #pragma once
 
 #include <mc/world/actor/player/Player.h>
@@ -60,23 +70,6 @@ void showMoveButtonTo(Player& player, std::string const& menuId, int buttonIndex
 
 // 显示模式设置（菜单自身样式: 表单 / NPC 对话 / 箱子）
 void showUiModeSettings(Player& player, std::string const& menuId);
-
-// 菜单分级设置（一级菜单可被触发物品打开 / 二级菜单只能从其它菜单进入）
-// 一级菜单（主菜单除外）在这里配置它自己的触发物品
-void showMenuLevelSettings(Player& player, std::string const& menuId);
-
-// 菜单分级: 触发物品设置表单（手输物品类型 ID，或从手持物品取）
-void showTriggerItemForm(Player& player, std::string const& menuId);
-void setTriggerItemFromHand(Player& player, std::string const& menuId);
-void clearTriggerItem(Player& player, std::string const& menuId);
-
-// 校验/补齐触发物品类型（空串 = 清除; 无命名空间按 minecraft: 补全; 钟留给主菜单）
-bool validateTriggerItemType(
-    Player&             player,
-    std::string const&  menuId,
-    std::string const&  input,
-    std::string&        outType
-);
 
 // 切换"允许的样式"（固有约束 uiAllow; 表单恒允许）
 void toggleUiAllowed(Player& player, std::string const& menuId, std::string const& mode);

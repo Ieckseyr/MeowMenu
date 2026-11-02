@@ -1,4 +1,12 @@
-// ExportApi.h - RemoteCall 导出（命名空间 "MeowMenu", 复杂数据用 JSON 字符串）
+// ExportApi.h - RemoteCall API 导出注册
+//
+// 将 MeowMenu 的全部功能通过 RemoteCall 导出，供 LSE（Node.js）或其他插件调用。
+// 命名空间: "MeowMenu"
+// 复杂数据（菜单/按钮/配置）一律用 JSON 字符串传递。
+//
+// 用法（LSE 端）：
+//   const getMenuIds = RemoteCall.importAs("MeowMenu", "getMenuIds");
+//   const ids = JSON.parse(getMenuIds());
 #pragma once
 
 namespace meowmenu {
@@ -16,7 +24,7 @@ private:
     void registerMenuApi();         // 菜单增删改查
     void registerButtonApi();       // 按钮增删改
     void registerRenderApi();       // 渲染
-    void registerTriggerItemApi();  // 主菜单触发物品（config.triggerItem）
+    void registerTriggerItemApi();  // 硬编码 clock 触发物品
     void registerItemTriggerApi();  // 自定义物品→菜单绑定
     void registerButtonHandlerApi();// 按钮点击模拟
     void registerConfigApi();       // 配置

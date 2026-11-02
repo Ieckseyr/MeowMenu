@@ -1,5 +1,19 @@
-// HologramLibAbi.h - HologramLib 原生接口的 ABI 镜像（运行时 GetProcAddress 连接, 不链接依赖）
-// 与 HologramLib.h 逐槽位一致（只允许尾部追加）; 由 tests/npc_abi/ 探针校验。
+// HologramLibAbi.h - HologramLib 原生 C++ 接口的 ABI 镜像（运行时连接, 非链接依赖）
+//
+// 为什么需要镜像而不是 #include "hologramlib/HologramLib.h":
+//   HologramLib.h 里的 `HOLOGLIB_API static IHologramLib& getInstance()` 在非导出侧展开为
+//   __declspec(dllimport)，一旦直接调用就会在 MeowMenu.dll 里留下导入项 —— HologramLib 会变成
+//   **加载期硬前置**（缺库则 MeowMenu 整个加载失败）。本插件要求 HologramLib 是**可选前置**，
+//   因此这里只镜像接口布局，入口符号在运行时用 GetProcAddress 解析。
+//
+// 契约:
+//   · 虚函数**声明顺序**即 vtable 槽位顺序，必须与 HologramLib.h 完全一致（含析构函数）。
+//     只在**尾部追加**是 HologramLib 的冻结契约（见其头文件 "冻结契约: 只在尾部追加"）。
+//   · 结构体（NpcDialogSpec / NpcDialogButton / NpcDialogClickEvent / GhostInteractEvent /
+//     PlayerNpcConfig / PlayerNpcSkin）按值/引用跨 DLL 传递，字段顺序与类型必须一致。
+//   · 镜像来源: E:\111FWQ\xb26.40\plugins\HologramLib\include\hologramlib\HologramLib.h
+//     （HologramLib 26.40.2 / HOLOGLIB_API_VERSION 0x011B00）
+//   · 一致性由 tests/npc_abi/ 的探针测试校验（对比真实头文件与镜像的槽位顺序、结构体尺寸）。
 #pragma once
 
 #include <cstdint>
@@ -24,11 +38,6 @@ class ICustomEntity;
 class IParticleShape;
 class ITradeMenu;
 class IContainerMenu;
-class IPlayerSensing;
-class IFakeInventory;
-class ISulfurDisplay;
-class IViewOverride;
-struct ActorInteractEvent;
 
 // HologramLib.dll 导出的唯一 C++ 入口符号（dumpbin /exports 实测）
 inline constexpr char const* kGetInstanceSymbol = "?getInstance@IHologramLib@hologramlib@@SAAEAV12@XZ";
@@ -36,7 +45,9 @@ inline constexpr char const* kGetInstanceSymbol = "?getInstance@IHologramLib@hol
 // NPC 对话域所需的最低 API 版本。0x011B00 = 1.21.0 线（tradeMenus 加入线, npcDialogs 与之同线）
 inline constexpr uint32_t kMinApiVersionForNpcDialog = 0x011B00;
 
-// ── 结构体（逐字段镜像） ──
+// ─────────────────────────────────────────────
+// 结构体（逐字段镜像）
+// ─────────────────────────────────────────────
 
 struct GhostInteractEvent {
     std::string playerName;   // 点击者（realName）
@@ -81,9 +92,6 @@ struct NpcDialogSpec {
     std::int64_t                 npcUniqueIdOverride{0};
     std::vector<NpcDialogButton> buttons;
     std::string                  rawActionJson;
-    // 26.40.8 尾部追加: 聊天框内显示的头像/模型自定义（皮肤变体 + 视图覆盖叠加）
-    int                          avatarSkinVariant{-1};
-    std::string                  avatarViewSpec;
 };
 
 struct NpcDialogClickEvent {
@@ -116,9 +124,6 @@ struct ContainerMenuSpec {
     // 摆好方块 + 方块实体之后, 等多少 tick 再发 ContainerOpen（客户端要先应用方块才绑得住）
     // 库实测: 7 能开、6 不行; 换设备/高负载可能要调大。尾部追加字段。
     int                            openDelayTicks{7};
-    // 可交互模式（1.23.0 尾部追加）: true = 客户端在本容器内部拖动/交换会被库接住并生效。
-    // **尺寸断言抓不到这个字段**（bool 吃掉了已有 padding）—— 靠 check_abi.js 的字段顺序比对把关。
-    bool                           interactive{false};
 };
 
 struct ContainerClickEvent {
@@ -128,7 +133,9 @@ struct ContainerClickEvent {
     bool        closed{false};  // true = 界面被关闭（此时 slot = -1）
 };
 
-// ── 接口（虚函数顺序即 vtable 槽位顺序） ──
+// ─────────────────────────────────────────────
+// 接口（虚函数顺序即 vtable 槽位顺序）
+// ─────────────────────────────────────────────
 
 class INpcDialogue {
 public:
@@ -144,7 +151,10 @@ public:
     virtual uint64_t addClickListener(std::function<void(NpcDialogClickEvent const&)> listener) = 0;
     virtual bool     removeClickListener(uint64_t token)                                        = 0;
 
-    // ── 1.21.0 追加: 就地换内容（复用载体, 只重发 Open）; 返回 false = 对话已不在 ──
+    // ── 1.21.0 未发布线追加（冻结契约: 只在尾部追加）──
+    // 就地换内容（翻页/进子菜单/返回）: 复用同一载体 NPC, 只重发一次 NpcDialoguePacket(Open),
+    // 不删载体、不重建、不关界面 → 无闪烁无延迟。回调里调用即表示"本次点击已接管", 库不再自动拆。
+    // 返回 false = 该对话已不在（调用方应改用 open）。
     virtual bool update(int64_t dialogId, NpcDialogSpec const& spec) = 0;
 };
 
@@ -190,20 +200,6 @@ public:
     virtual bool setPlayerRotation(int64_t id, std::string const& playerName, float yaw)       = 0;
     virtual bool clearPlayerRotation(int64_t id, std::string const& playerName)                = 0;
     virtual bool clearPlayerRotations(int64_t id)                                              = 0;
-
-    // ── 1.26.0 尾部追加（26.40.8 批次）──
-    virtual bool setPositionLight(int64_t id, float x, float y, float z, int dim) = 0;
-    virtual bool injectSkin(std::string const& viewerName, std::string const& targetName, std::string const& skinId) = 0;
-    virtual bool injectSkinAll(std::string const& targetName, std::string const& skinId) = 0;
-    virtual bool playAnimation(
-        int64_t id, std::string const& animation, std::string const& stopExpression, int durationTicks
-    ) = 0;
-    virtual bool playAnimationTo(
-        int64_t id, std::string const& playerName, std::string const& animation, std::string const& stopExpression,
-        int durationTicks
-    ) = 0;
-    using EntitySpawnCallback = std::function<void(int64_t id, std::string const& playerName)>;
-    virtual void setEntitySpawnCallback(EntitySpawnCallback callback) = 0;
 };
 
 class IContainerMenu {
@@ -220,15 +216,17 @@ public:
     virtual uint64_t addClickListener(std::function<void(ContainerClickEvent const&)> listener) = 0;
     virtual bool     removeClickListener(uint64_t token)                                        = 0;
 
-    // ── 1.21.0 追加: 就地换内容（复用载体方块, 只重发 NBT + ContainerOpen）; 返回 false = 菜单已不在 ──
+    // ── 1.21.0 未发布线追加（冻结契约: 只在尾部追加）──
+    // 就地换内容（翻页/进子菜单/返回）: 复用同一个载体方块, 不拆界面、不重发方块、不等待 ——
+    // 只重发一次方块实体 NBT（Items/标题）与 ContainerOpen。
+    // 对比 open(): open 会先关旧菜单再重新摆方块 + 等 openDelayTicks, 每次都要付打开延迟。
+    // 返回 false = 该菜单已不在（调用方应改用 open）。
     virtual bool update(int64_t menuId, ContainerMenuSpec const& spec) = 0;
 
-    // ── 按槽刷新: 只发一条 InventorySlot（item.type 空 = 清空）; 返回 false = 菜单已不在或越界 ──
+    // 按槽动态刷新: 只改一个格子（发一条 InventorySlot）, 客户端就地换掉那一格 ——
+    // 不重发方块实体、不重发 ContainerOpen、不重开界面, 无延迟无闪烁。
+    // item.type 为空 = 清空该槽。返回 false = 菜单已不在或槽位越界。
     virtual bool setItem(int64_t menuId, int slot, ContainerMenuItem const& item) = 0;
-
-    // ── 1.23.0 尾部追加 ──
-    // 可交互模式开关（见 ContainerMenuSpec::interactive）。返回 false = 菜单已不在。
-    virtual bool setInteractive(int64_t menuId, bool on) = 0;
 };
 
 // 库入口单例。getInstance 是 static（不占 vtable 槽位），由运行时 GetProcAddress 解析。
@@ -265,15 +263,6 @@ public:
     virtual INpcDialogue& npcDialogs() = 0;
 
     virtual IContainerMenu& containerMenus() = 0;
-
-    // ── 尾部追加（1.22.0 / 1.27.0 批次）──
-    virtual IPlayerSensing& playerSensing()   = 0;
-    virtual IFakeInventory& fakeInventories() = 0;
-    virtual ISulfurDisplay& sulfurDisplays()  = 0;
-    virtual IViewOverride&  viewOverrides()   = 0;
-
-    virtual uint64_t addActorInteractListener(std::function<void(ActorInteractEvent const&)> listener) = 0;
-    virtual bool     removeActorInteractListener(uint64_t token)                                      = 0;
 };
 
 } // namespace MEOW_HOLOGRAM_ABI_NAMESPACE

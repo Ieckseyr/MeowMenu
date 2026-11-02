@@ -1,13 +1,17 @@
-// EventRegistration.cpp - 事件注册（进服发放 / 右键触发）
+// EventRegistration.cpp - 事件注册实现
+//
+// 监听事件：
+// 1. PlayerJoinEvent - 玩家进服时自动给予触发物品
+// 2. PlayerInteractBlockEvent - 右键方块时检测触发物品并打开菜单（useitemon）
+// 3. PlayerUseItemEvent - 右键空气时检测触发物品并打开菜单（useitem）
+//
+// 注：物品使用还额外挂了事务层/物品层的裸钩子（见 ItemUseHook.cpp），
+//     两者共用 TriggerRouter 的同一份判定与冷却 —— 哪条路径先到都只打开一次菜单。
 #include "EventRegistration.h"
 #include "Config.h"
 #include "TriggerItem.h"
 #include "TriggerRouter.h"
-#include "PlayerRecord.h"
 #include "MeowMenu.h"
-
-// 26.40 事件 ID 对齐: 必须在注册监听器之前 include（缺了监听器会全部静默失效）
-#include "EventIdCompat.h"
 
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/player/PlayerJoinEvent.h"
@@ -22,41 +26,33 @@
 
 #include <chrono>
 
+// ── LeviLamina 事件 ID 对齐补丁（与 MeowSidebar/Mtps 同款）──
+// LL 26.x 把事件类挪进 inline namespace, EventId 基于 __FUNCSIG__ 反射类型名:
+//   Clang (官方 LeviLamina.dll) → 省略 inline ns → "ll::event::PlayerJoinEvent"
+//   MSVC (本插件)               → 保留 inline ns → "ll::event::player::PlayerJoinEvent"
+// 两侧 hash 不一致 → MSVC 插件的监听器收不到事件（进服发物品/触发菜单全部失效）。
+// 二进制验证: LeviLamina.dll 中字符串为无前缀变体。显式特化 getEventId 强制对齐。
+namespace ll::event {
+template <>
+constexpr EventIdView getEventId<::ll::event::player::PlayerJoinEvent> =
+    EventIdView{"ll::event::PlayerJoinEvent"};
+
+template <>
+constexpr EventIdView getEventId<::ll::event::player::PlayerInteractBlockEvent> =
+    EventIdView{"ll::event::PlayerInteractBlockEvent"};
+
+template <>
+constexpr EventIdView getEventId<::ll::event::player::PlayerUseItemEvent> =
+    EventIdView{"ll::event::PlayerUseItemEvent"};
+} // namespace ll::event
+
 namespace meowmenu {
-
-namespace {
-
-long long nowSeconds() {
-    return std::chrono::duration_cast<std::chrono::seconds>(
-               std::chrono::system_clock::now().time_since_epoch()
-    ).count();
-}
-
-// 按名字找在线玩家（进服 500ms 延迟后重新取；名字比 IP:port 可靠 —— 同 IP 多号/重连都不会找错人）
-Player* findPlayerByName(std::string const& name) {
-    auto level = ll::service::getLevel();
-    if (!level.has_value()) return nullptr;
-
-    Player* found = nullptr;
-    level->forEachPlayer([&](Player& p) -> bool {
-        try {
-            if (p.getRealName() == name) {
-                found = &p;
-                return true;
-            }
-        } catch (...) {}
-        return false;
-    });
-    return found;
-}
-
-} // namespace
 
 void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
     auto& logger = lib().getSelf().getLogger();
     auto& bus    = ll::event::EventBus::getInstance();
 
-    // 玩家进服: 一次性发放触发物品（players.json 里记过账的直接跳过）
+    //=== 1. 玩家进服 - 自动给予触发物品 ===
     auto joinListener = bus.emplaceListener<ll::event::player::PlayerJoinEvent>(
         [](ll::event::player::PlayerJoinEvent& event) {
             auto& player = event.self();
@@ -64,37 +60,24 @@ void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
 
             if (!cfg.giveUs.enabled || !cfg.giveUs.giveOnJoin) return;
 
-            std::string name;
-            try {
-                name = player.getRealName();
-            } catch (...) {}
-            if (name.empty()) return;
-
-            auto& store = PlayerRecordStore::getInstance();
-
-            // 发过 = 不用管（这就是"不需要每次进服重复检查"的开关）
-            if (store.menuGiven(name)) return;
-
-            // 首次进服登记（顺便补全 missing 字段），便于管理员查看新玩家
-            if (store.noteFirstJoin(name, nowSeconds())) {
-                lib().getSelf().getLogger().info("首次进服玩家: {}（已登记到 players.json）", name);
-            }
-
             // 延迟 500ms 给予物品（等待玩家完全加载）
+            auto playerKey = player.getNetworkIdentifier().getIPAndPort();
             ll::thread::ServerThreadExecutor::getDefault().executeAfter(
-                [name]() {
-                    Player* player = findPlayerByName(name);
-                    if (!player) return; // 已离线
+                [playerKey]() {
+                    auto level = ll::service::getLevel();
+                    if (!level.has_value()) return;
 
-                    if (TriggerItem::giveItem(*player, true)) {
-                        PlayerRecordStore::getInstance().markMenuGiven(name, nowSeconds());
-                        lib().getSelf().getLogger().info("进服发放: {} 已取得菜单物品（记账于 players.json）", name);
-                    } else {
-                        // 不记账 → 下次进服自动重试；也给一条手动路径
-                        lib().getSelf().getLogger().warn(
-                            "进服发放失败: {}（背包满或物品创建失败 → 不记账, 下次进服重试; 可手动输入 /mmenu 获取）",
-                            name
-                        );
+                    Player* player = nullptr;
+                    level->forEachPlayer([&](Player& p) -> bool {
+                        if (p.getNetworkIdentifier().getIPAndPort() == playerKey) {
+                            player = &p;
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    if (player) {
+                        TriggerItem::giveItem(*player, true);
                     }
                 },
                 std::chrono::milliseconds(500)
@@ -103,12 +86,14 @@ void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
     );
     mListenerPtrs.push_back(joinListener);
 
-    // 右键方块: 触发物品打开菜单, 并取消方块交互
+    //=== 2. 右键方块 - 检测触发物品 ===
+    // LL 的 PlayerInteractBlockEvent 由 GameMode::$useItemOn 链发布；这里负责
+    // "菜单代替方块交互"的拦截（cancel），触发判定与冷却复用 TriggerRouter。
     auto interactListener = bus.emplaceListener<ll::event::PlayerInteractBlockEvent>(
         [](ll::event::PlayerInteractBlockEvent& event) {
             auto& player = event.self();
 
-            // 解析手持物品应打开的菜单（主菜单触发物品 或 LSE 自定义触发）
+            // 解析手持物品应打开的菜单（硬编码 clock 或 LSE 自定义触发）
             if (!tryTriggerMenu(player, event.item())) {
                 return; // 无触发物品
             }
@@ -124,7 +109,7 @@ void registerEvents(std::vector<ll::event::ListenerPtr>& mListenerPtrs) {
         [](ll::event::PlayerUseItemEvent& event) {
             auto& player = event.self();
 
-            // 解析手持物品应打开的菜单（主菜单触发物品 或 LSE 自定义触发）
+            // 解析手持物品应打开的菜单（硬编码 clock 或 LSE 自定义触发）
             if (!tryTriggerMenu(player, event.item())) {
                 return; // 无触发物品
             }

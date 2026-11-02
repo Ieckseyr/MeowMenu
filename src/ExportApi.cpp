@@ -1,4 +1,8 @@
-// ExportApi.cpp - RemoteCall 导出实现（命名空间 "MeowMenu"; 一律 try/catch 兜底）
+// ExportApi.cpp - RemoteCall API 导出注册实现
+//
+// 命名空间: "MeowMenu"
+// 所有导出函数均 try/catch(...) 兜底，失败返回 false/空串，避免 RemoteCall _onCallError
+// 抛出非 std 异常（参考 MeowSync 教训）。
 #include "ExportApi.h"
 #include "Config.h"
 #include "MenuStore.h"
@@ -58,7 +62,9 @@ void ExportApi::registerAll() {
     gReady.store(true);
 }
 
-//==== 菜单管理 API ====
+//================================================================
+// 菜单管理 API
+//================================================================
 void ExportApi::registerMenuApi() {
     // getMenuIds() -> string  (JSON 数组)
     RemoteCall::exportAs("MeowMenu", "getMenuIds", []() -> std::string {
@@ -162,63 +168,11 @@ void ExportApi::registerMenuApi() {
             } catch (...) {}
             return false;
         });
-
-    // createMenuWithLevel(id, title, content, level) -> bool  (新建菜单并指定分级: 1 = 一级, 2 = 二级)
-    RemoteCall::exportAs("MeowMenu", "createMenuWithLevel",
-        [](std::string const& id, std::string const& title, std::string const& content, int level) -> bool {
-            try {
-                return MenuStore::getInstance().createMenu(id, title, content, level);
-            } catch (...) {}
-            return false;
-        });
-
-    // setMenuLevel(menuId, level) — 修改菜单分级（二级不被触发物品打开）
-    RemoteCall::exportAs("MeowMenu", "setMenuLevel",
-        [](std::string const& menuId, int level) -> bool {
-            try {
-                auto menu = MenuStore::getInstance().getMenu(menuId);
-                if (!menu) return false;
-                Menu local = *menu;
-                local.level = (level == 2) ? 2 : 1;
-                return MenuStore::getInstance().saveMenu(local);
-            } catch (...) {}
-            return false;
-        });
-
-    // setMenuTriggerItem(menuId, itemType, displayName) — 设置一级菜单的触发物品（空串 = 清除）
-    RemoteCall::exportAs("MeowMenu", "setMenuTriggerItem",
-        [](std::string const& menuId, std::string const& itemType, std::string const& displayName) -> bool {
-            try {
-                auto menu = MenuStore::getInstance().getMenu(menuId);
-                if (!menu) return false;
-                Menu local = *menu;
-                local.triggerItem.type        = itemType;
-                local.triggerItem.displayName = displayName;
-                return MenuStore::getInstance().saveMenu(local);
-            } catch (...) {}
-            return false;
-        });
-
-    // getMenuLevel(menuId) -> int  (1 = 一级菜单, 2 = 二级菜单; 菜单不存在返回 -1)
-    RemoteCall::exportAs("MeowMenu", "getMenuLevel", [](std::string const& menuId) -> int {
-        try {
-            auto menu = MenuStore::getInstance().getMenu(menuId);
-            if (!menu) return -1;
-            return menu->level;
-        } catch (...) {}
-        return -1;
-    });
-
-    // getMenuByTriggerItem(itemType) — 按触发物品类型查一级菜单 ID（无匹配返回 ""）
-    RemoteCall::exportAs("MeowMenu", "getMenuByTriggerItem", [](std::string const& itemType) -> std::string {
-        try {
-            return MenuStore::getInstance().findMenuByTriggerItem(itemType);
-        } catch (...) {}
-        return "";
-    });
 }
 
-//==== 按钮管理 API ====
+//================================================================
+// 按钮管理 API
+//================================================================
 void ExportApi::registerButtonApi() {
     // getButton(menuId, index) -> string  (按钮 JSON，越界返回 "{}")
     RemoteCall::exportAs("MeowMenu", "getButton",
@@ -290,7 +244,8 @@ void ExportApi::registerButtonApi() {
         return -1;
     });
 
-    // insertButton(menuId, index, buttonJson) — 在指定位置插入按钮（index 越界自动钳制）
+    // insertButton(menuId, index, buttonJson) -> bool  (在指定位置插入按钮)
+    // index 越界时自动钳制：<0 视为 0，>size 视为末尾追加
     RemoteCall::exportAs("MeowMenu", "insertButton",
         [](std::string const& menuId, int index, std::string const& buttonJson) -> bool {
             try {
@@ -342,7 +297,9 @@ void ExportApi::registerButtonApi() {
     });
 }
 
-//==== 渲染 API ====
+//================================================================
+// 渲染 API
+//================================================================
 void ExportApi::registerRenderApi() {
     // renderMenu(playerName, menuId) -> bool
     RemoteCall::exportAs("MeowMenu", "renderMenu",
@@ -369,7 +326,9 @@ void ExportApi::registerRenderApi() {
     });
 }
 
-//==== 触发物品 API（config.triggerItem, 默认 clock） ====
+//================================================================
+// 触发物品 API（硬编码 clock）
+//================================================================
 void ExportApi::registerTriggerItemApi() {
     // giveTriggerItem(playerName) -> bool
     RemoteCall::exportAs("MeowMenu", "giveTriggerItem", [](std::string const& playerName) -> bool {
@@ -404,7 +363,9 @@ void ExportApi::registerTriggerItemApi() {
     });
 }
 
-//==== 自定义物品触发 API ====
+//================================================================
+// 自定义物品触发 API（核心新功能）
+//================================================================
 void ExportApi::registerItemTriggerApi() {
     // registerItemTrigger(itemType, menuId) -> bool
     RemoteCall::exportAs("MeowMenu", "registerItemTrigger",
@@ -440,7 +401,9 @@ void ExportApi::registerItemTriggerApi() {
     });
 }
 
-//==== 按钮处理 API ====
+//================================================================
+// 按钮处理 API
+//================================================================
 void ExportApi::registerButtonHandlerApi() {
     // triggerButton(playerName, menuId, buttonIndex) -> bool
     RemoteCall::exportAs("MeowMenu", "triggerButton",
@@ -457,7 +420,9 @@ void ExportApi::registerButtonHandlerApi() {
         });
 }
 
-//==== 配置 API ====
+//================================================================
+// 配置 API
+//================================================================
 void ExportApi::registerConfigApi() {
     // getConfig() -> string
     RemoteCall::exportAs("MeowMenu", "getConfig", []() -> std::string {
@@ -481,13 +446,13 @@ void ExportApi::registerConfigApi() {
             j["giveUs"]["msgAlreadyHave"]   = cfg.giveUs.msgAlreadyHave;
             j["giveUs"]["msgInventoryFull"] = cfg.giveUs.msgInventoryFull;
             j["giveUs"]["msgCleared"]       = cfg.giveUs.msgCleared;
-            j["menuLevel"]["defaultLevel"]  = cfg.menuLevel.defaultLevel;
             return j.dump();
         } catch (...) {}
         return "{}";
     });
 
-    // setConfig(key, valueJson) — valueJson 是 JSON 编码的值（如 true / "main" / 123）
+    // setConfig(key, valueJson) -> bool
+    // valueJson 是 JSON 编码的值，如 true / "main" / 123
     RemoteCall::exportAs("MeowMenu", "setConfig",
         [](std::string const& key, std::string const& valueJson) -> bool {
             try {
@@ -503,7 +468,6 @@ void ExportApi::registerConfigApi() {
                 else if (key == "triggerItem.displayName") cfg.triggerItem.displayName = value.get<std::string>();
                 else if (key == "triggerItem.snbt")        cfg.triggerItem.snbt = value.get<std::string>();
                 else if (key == "triggerItem.count")       cfg.triggerItem.count = value.get<int>();
-                else if (key == "menuLevel.defaultLevel")  cfg.menuLevel.defaultLevel = (value.get<int>() == 2) ? 2 : 1;
                 else if (key == "giveUs.enabled")          cfg.giveUs.enabled = value.get<bool>();
                 else if (key == "giveUs.giveOnJoin")       cfg.giveUs.giveOnJoin = value.get<bool>();
                 else if (key == "giveUs.commandName")      cfg.giveUs.commandName = value.get<std::string>();
@@ -531,7 +495,9 @@ void ExportApi::registerConfigApi() {
     });
 }
 
-//==== 图标校验 API ====
+//================================================================
+// 图标校验 API
+//================================================================
 void ExportApi::registerIconApi() {
     // isValidItemId(itemId) -> bool
     RemoteCall::exportAs("MeowMenu", "isValidItemId", [](std::string const& itemId) -> bool {
@@ -566,7 +532,9 @@ void ExportApi::registerIconApi() {
     });
 }
 
-//==== 管理员编辑器 API（表单 UI） ====
+//================================================================
+// 管理员编辑器 API（表单 UI）
+//================================================================
 void ExportApi::registerEditorApi() {
     // showEditor(playerName) -> bool
     RemoteCall::exportAs("MeowMenu", "showEditor", [](std::string const& playerName) -> bool {
@@ -603,7 +571,12 @@ void ExportApi::registerEditorApi() {
         });
 }
 
-//==== NPC 对话菜单 API（HologramLib 可选前置; 缺库时一律返回 false/0/空串） ====
+//================================================================
+// NPC 对话菜单 API（HologramLib 可选前置）
+//
+// 前置缺失时: isNpcMenuAvailable() 返回 false, 其余调用返回 false/0/空串（不抛异常）。
+// 前置存在时: 这些调用与游戏内 /mnpc 命令等价。
+//================================================================
 void ExportApi::registerNpcMenuApi() {
     // isNpcMenuAvailable() -> bool  前置是否已连接且 API 版本达标
     RemoteCall::exportAs("MeowMenu", "isNpcMenuAvailable", []() -> bool {
@@ -621,7 +594,8 @@ void ExportApi::registerNpcMenuApi() {
         return "";
     });
 
-    // openNpcMenuDialog(playerName, menuId) — 以 NPC 对话界面打开菜单（menuId 空 = 主菜单）
+    // openNpcMenuDialog(playerName, menuId) -> bool
+    // 以 HologramLib 的 NPC 对话界面打开菜单（menuId 空串 = 主菜单）; 子菜单可在界面内逐层进入
     RemoteCall::exportAs("MeowMenu", "openNpcMenuDialog",
         [](std::string const& playerName, std::string const& menuId) -> bool {
             try {
@@ -642,7 +616,8 @@ void ExportApi::registerNpcMenuApi() {
         return false;
     });
 
-    // spawnNpcMenuAt(npcName, menuId, x, y, z, dim) — 生成"点击即打开菜单"的 NPC（持久化）
+    // spawnNpcMenuAt(npcName, menuId, x, y, z, dim) -> int
+    // 在指定坐标生成"点击即打开菜单"的 NPC（持久化, 重启后自动重建）; 返回库内 NPC id, <0 失败
     RemoteCall::exportAs("MeowMenu", "spawnNpcMenuAt",
         [](std::string const& npcName,
            std::string const& menuId,
@@ -689,7 +664,10 @@ void ExportApi::registerNpcMenuApi() {
         return false;
     });
 
-    // setMenuNpcMode(menuId, enabled, npcName, dialogue) — 把菜单设为/取消 NPC 对话模式
+    // setMenuNpcMode(menuId, enabled, npcName, dialogue) -> bool
+    // 把某个菜单设为/取消"NPC 对话模式": 开启后该菜单被任何入口打开时都直接以 NPC 对话界面呈现
+    // npcName  留空 = 用菜单标题作为对话框里的 NPC 名
+    // dialogue 留空 = 用菜单 content 作为话语正文（单行文本里可用 \n 表示换行）
     RemoteCall::exportAs("MeowMenu", "setMenuNpcMode",
         [](std::string const& menuId,
            bool               enabled,
@@ -706,19 +684,6 @@ void ExportApi::registerNpcMenuApi() {
             return false;
         });
 
-    // setMenuNpcAvatar(menuId, avatarType, avatarVariant) — 聊天框头像/载体自定义（avatarType 空 = 默认）
-    RemoteCall::exportAs("MeowMenu", "setMenuNpcAvatar",
-        [](std::string const& menuId, std::string const& avatarType, int avatarVariant) -> bool {
-            try {
-                auto menu = MenuStore::getInstance().getMenu(menuId);
-                if (!menu) return false;
-                menu->npc.avatarType    = avatarType;
-                menu->npc.avatarVariant = avatarVariant;
-                return MenuStore::getInstance().saveMenu(*menu);
-            } catch (...) {}
-            return false;
-        });
-
     // openChestMenu(playerName, menuId) -> bool  以箱子界面打开菜单（需 HologramLib）
     RemoteCall::exportAs("MeowMenu", "openChestMenu",
         [](std::string const& playerName, std::string const& menuId) -> bool {
@@ -730,7 +695,8 @@ void ExportApi::registerNpcMenuApi() {
             return false;
         });
 
-    // setChestSlot(playerName, slot, itemType, name) — 按槽刷新箱子界面一格（itemType 空 = 清空）
+    // setChestSlot(playerName, slot, itemType, name) -> bool
+    // 按槽动态刷新当前箱子界面的一格（无延迟无闪烁; itemType 空串 = 清空该格）
     RemoteCall::exportAs("MeowMenu", "setChestSlot",
         [](std::string const& playerName, int slot, std::string const& itemType, std::string const& name) -> bool {
             try {
@@ -789,8 +755,6 @@ void ExportApi::registerNpcMenuApi() {
                 {"enabled", menu->npc.enabled},
                 {"name", menu->npc.name},
                 {"dialogue", menu->npc.dialogue},
-                {"avatarType", menu->npc.avatarType},
-                {"avatarVariant", menu->npc.avatarVariant},
                 {"maxButtons", 6},
                 {"clickableButtons", menu->clickableButtonCount()},
             }.dump();
@@ -799,7 +763,9 @@ void ExportApi::registerNpcMenuApi() {
     });
 }
 
-//==== 工具 API ====
+//================================================================
+// 工具 API
+//================================================================
 void ExportApi::registerUtilApi() {
     // formatMessage(template) -> string  (替换 {item} / {cmd})
     RemoteCall::exportAs("MeowMenu", "formatMessage", [](std::string const& template_) -> std::string {
@@ -815,9 +781,14 @@ void ExportApi::registerUtilApi() {
     });
 }
 
-//==== 菜单迁移 API（外部格式导入） ====
+//================================================================
+// 菜单迁移 API（外部菜单插件格式导入）
+//================================================================
 void ExportApi::registerMigrationApi() {
-    // autoMigrateMenus() — 扫描 migrations/ 导入 CD/PMenu/CMENU, 返回导入数量
+    // autoMigrateMenus() -> int
+    // 手动触发扫描 Meowdata/MeowMenu/migrations/ 下的 JSON 文件，
+    // 自动识别 CD/PMenu/CMENU 格式并转换导入到 data/，导入后移至 migrations/done/
+    // 返回成功导入的菜单数量
     RemoteCall::exportAs("MeowMenu", "autoMigrateMenus", []() -> int {
         try {
             return MigrationManager::getInstance().autoMigrate();
@@ -825,7 +796,10 @@ void ExportApi::registerMigrationApi() {
         return 0;
     });
 
-    // importMenu(menuId, formatJson) — 转换外部格式 JSON 并保存（已存在则覆盖）
+    // importMenu(menuId, formatJson) -> bool
+    // 直接传入外部格式 JSON 字符串，自动识别格式并转换为 MeowMenu 菜单后保存
+    // menuId     : 目标菜单 ID（已存在则覆盖）
+    // formatJson : 外部格式 JSON（PMenu/CMENU/CD旧/CD新）
     RemoteCall::exportAs("MeowMenu", "importMenu",
         [](std::string const& menuId, std::string const& formatJson) -> bool {
             try {

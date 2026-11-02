@@ -1,4 +1,14 @@
-// CommandRegistration.cpp - 命令注册（/mmenu · /mmgv · /clearmmenu · /mnpc · /mmenu ui）
+// CommandRegistration.cpp - /mmenu 命令注册
+//
+// 命令格式：
+//   /mmenu            - 打开主菜单（所有玩家）
+//   /mmenu admin      - 打开菜单编辑器（仅OP）
+//   /mmenu reload     - 热重载配置与菜单数据（仅OP）
+//   /mmenu mode       - 玩家模式选择（本版本仅 static，保留命令兼容）
+//   /mmgv             - 快捷获取菜单物品
+//   /clearmmenu       - 清除菜单物品
+//
+//   /mnpc ...         - HologramLib NPC 对话菜单（可选前置, 详见 docs/NPC_MENU.md）
 #include "MeowMenu.h"
 #include "Config.h"
 #include "MenuStore.h"
@@ -41,7 +51,8 @@ struct ActionParam {
 // 前向声明（定义在本文件下方）
 void showUiStyleForm(Player& player);
 
-// /mmenu 与别名命令的共享执行逻辑（action 空 = 无参重载, 打开主菜单）
+// /mmenu 与别名命令的共享执行逻辑
+// action 为空串表示无参重载（打开主菜单），非空串表示子指令
 static void executeMenuAction(CommandOrigin const& origin, CommandOutput& output, std::string const& action) {
     auto* entity = origin.getEntity();
 
@@ -105,7 +116,19 @@ static void executeMenuAction(CommandOrigin const& origin, CommandOutput& output
     }
 }
 
-//==== /mnpc - NPC 对话菜单（status / list / open / close / test / spawn / bind / remove / reload） ====
+//================================================================
+// /mnpc - HologramLib NPC 对话菜单（可选前置）
+//
+//   /mnpc status              连接状态 / 版本 / 绑定数量
+//   /mnpc list                已绑定菜单的 NPC 列表
+//   /mnpc open [menuId]       以 NPC 对话形式打开菜单（不给 id 则打开主菜单）
+//   /mnpc close               关闭自己的 NPC 对话
+//   /mnpc test                一键测试: 生成"菜单测试"NPC 并立即打开测试菜单（仅OP）
+//   /mnpc spawn <name> <menu> 在身前生成可点击 NPC 并绑定菜单（仅OP）
+//   /mnpc bind <npcId> <menu> 把已有 HologramLib NPC 绑定到菜单（仅OP）
+//   /mnpc remove <npcId>      删除 NPC 及其绑定（仅OP）
+//   /mnpc reload              重读 npc_menus.json 并重建 NPC（仅OP）
+//================================================================
 
 // 配套测试菜单: Meowdata/MeowMenu/data/npc_test_*.json
 static constexpr char const* kNpcTestMenuId = "npc_test_main";
@@ -304,7 +327,9 @@ static void registerNpcCommands() {
     );
 }
 
-//==== 界面样式选择（跟随菜单 / 表单 / NPC 对话 / 箱子） ====
+//================================================================
+// 界面样式选择（玩家自选: 跟随菜单 / 表单 / NPC 对话 / 箱子）
+//================================================================
 void showUiStyleForm(Player& player) {
     auto& pref = PlayerUiPref::getInstance();
     auto& bridge = NpcMenuBridge::getInstance();
@@ -324,7 +349,7 @@ void showUiStyleForm(Player& player) {
     auto addOption = [&](char const* mode, std::string const& label, std::string const& desc, bool enabled) {
         std::string text = fmt::format(
             "{}{}\n§7{}",
-            current == mode ? "§a " : "§l",
+            current == mode ? "§a✔ " : "§l",
             label,
             enabled ? desc : "§c需要服务器安装 HologramLib"
         );

@@ -3,8 +3,6 @@
 #include "Config.h"
 #include "ItemTrigger.h"
 #include "MenuRenderer.h"
-#include "MenuStore.h"
-#include "MeowMenu.h"
 #include "TriggerItem.h"
 
 #include <mc/world/actor/player/Player.h>
@@ -14,7 +12,6 @@
 #include <chrono>
 #include <mutex>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace meowmenu {
 
@@ -40,45 +37,28 @@ bool checkCooldown(std::string const& playerKey) {
     return true;
 }
 
-// 解析手持物品应打开的菜单 ID（优先级: 主菜单触发物 → 一级菜单触发物 → LSE 绑定）
+// 解析手持物品应打开的菜单 ID
+// 优先级：
+//   1. 硬编码 clock 触发物品 → config.mainMenuId
+//   2. LSE 注册的自定义物品触发（ItemTrigger）→ 对应 menuId
+//   3. 无匹配 → 返回空串
 std::string resolveTriggerMenu(ItemStackBase const& item) {
     if (item.isNull()) return "";
 
-    // 1. 主菜单触发物品（config.triggerItem, 默认钟）
+    // 1. 硬编码 clock 触发物品
     if (TriggerItem::isTriggerItem(item)) {
         return ConfigManager::getInstance().getConfig().mainMenuId;
     }
 
-    std::string itemType;
+    // 2. 自定义物品触发（LSE 通过 registerItemTrigger 注册）
     try {
-        itemType = item.getTypeName();
-    } catch (...) {}
-    if (itemType.empty()) return "";
-
-    // 2. 一级菜单自己配置的触发物品
-    std::string byMenu = MenuStore::getInstance().findMenuByTriggerItem(itemType);
-    if (!byMenu.empty()) return byMenu;
-
-    // 3. 自定义物品触发（LSE 通过 registerItemTrigger 注册）
-    std::string byApi = ItemTrigger::getInstance().findMenuId(itemType);
-    if (byApi.empty()) return "";
-
-    // 二级菜单不能由物品触发打开 → 忽略该绑定（只提示一次, 避免刷日志）
-    if (auto menu = MenuStore::getInstance().getMenu(byApi); menu && menu->isSecondary()) {
-        static std::mutex              warnedMutex;
-        static std::unordered_set<std::string> warned;
-        std::lock_guard                lock(warnedMutex);
-        if (warned.insert(byApi).second) {
-            lib().getSelf().getLogger().warn(
-                "物品触发 {} 指向的菜单 {} 是二级菜单 → 已忽略（二级菜单只能从其它菜单进入）",
-                itemType,
-                byApi
-            );
+        std::string itemType = item.getTypeName();
+        if (!itemType.empty()) {
+            return ItemTrigger::getInstance().findMenuId(itemType);
         }
-        return "";
-    }
+    } catch (...) {}
 
-    return byApi;
+    return "";
 }
 
 } // namespace

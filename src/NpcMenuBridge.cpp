@@ -1,4 +1,11 @@
-// NpcMenuBridge.cpp - HologramLib 界面桥接实现（可选前置: 运行时 GetProcAddress, 不链接）
+// NpcMenuBridge.cpp - HologramLib NPC 对话菜单桥接实现
+//
+// 三个关键点:
+//   1. 前置是"可选"的: 只做 GetModuleHandle/LoadLibrary + GetProcAddress, 不链接 HologramLib,
+//      因此 MeowMenu.dll 的导入表里没有 HologramLib —— 缺库时插件照常加载, 仅本模块禁用。
+//   2. 菜单 → NPC 对话: 菜单按钮映射成 NpcDialogButton, actionId 里编码"菜单id#按钮下标";
+//      点击回传后按 actionId 精确定位, 再走既有 ButtonHandler 执行（命令真执行、子菜单逐层推进）。
+//   3. 持久化: HologramLib 明确不落盘（"持久化由消费方负责"）, 故这里保存 NPC 位置/绑定/皮肤快照。
 #include "NpcMenuBridge.h"
 
 #include "ButtonHandler.h"
@@ -42,9 +49,12 @@ constexpr char const* kActionClose   = "@close";
 constexpr char const* kMenuActionTag = "menu:";
 constexpr size_t      kMaxBodyChars  = 700; // 对话框正文上限（过长客户端界面显示不全）
 constexpr size_t      kMaxLabelChars = 60;  // 按钮文本上限
-// 本层按钮上限 6 个; 有「返回上一级」时 5 个
+// 原版 NPC 对话框的按钮槽位上限。菜单自己的按钮最多这么多;
+// 从上一层进入时若还有空槽才追加「返回上一级」。
 constexpr size_t      kMaxDialogButtons = 6;
-// NPC 对话分页: >6 个按钮才分页; 每页内容 普通菜单 4 / 主菜单 5, 其余槽位放导航
+// NPC 对话框分页: 可点击按钮超过 6 个才分页。分页时每页内容项: 普通菜单 4, 主菜单 5
+// （余下槽位放导航: 普通菜单 2 格 = 首格上一页 / 末格下一页; 主菜单只剩 1 格, 优先下一页,
+//   最后一页显示上一页 —— 6 格里放不下 5 内容 + 双向导航, 这是取舍）
 constexpr size_t      kPageSizeNormal = 4;
 constexpr size_t      kPageSizeMain   = 5;
 constexpr char const* kActionPrev     = "@prev";
@@ -65,7 +75,8 @@ std::string expandEscapedNewlines(std::string const& in) {
     return out;
 }
 
-// § 格式码 = C2 A7 两字节（也有单字节 0xA7 的老写法）; 返回需要跳过的字节数
+// § 格式码在 UTF-8 文本里是两字节 (C2 A7); 也存在单字节 0xA7 的老写法。
+// 返回需要跳过的字节数（0 = 当前位置不是格式码）: § 本身 + 其后的格式字符。
 size_t formatCodeLength(unsigned char const* p, size_t remaining) {
     if (remaining >= 2 && p[0] == 0xC2 && p[1] == 0xA7) {
         return remaining >= 3 ? 3 : 2; // C2 A7 + 格式字符（结尾只剩 § 时只丢这两字节）
@@ -93,7 +104,8 @@ std::string stripFormatCodes(std::string const& in) {
     return out;
 }
 
-// 按字节上限截断但不切断 UTF-8（半个多字节字符会让 nlohmann 序列化抛异常）
+// 按字节上限截断, 但不切断 UTF-8 序列
+// （截出半个多字节字符 → 客户端显示乱码, nlohmann 序列化抛 type_error.316, 存档失败）
 std::string truncateUtf8(std::string const& s, size_t maxBytes) {
     if (s.size() <= maxBytes) return s;
     size_t cut = maxBytes;
@@ -221,7 +233,8 @@ bool base64Decode(std::string const& in, std::string& out) {
     return true;
 }
 
-// NPC 名会作为 PlayerList 名字, 去掉 § 颜色码/换行（按 UTF-8 处理, 别切出半个字节）
+// NPC 名字清洗: 它会作为假玩家的 PlayerList 名字, 不能带 § 颜色码/换行
+// （必须按 UTF-8 处理: § 是 C2 A7 两字节, 只按 0xA7 处理会留下半个字节 → 非法 UTF-8）
 std::string sanitizeNpcName(std::string const& in) {
     std::string name;
     name.reserve(in.size());
@@ -269,7 +282,9 @@ bool NpcMenuBridge::isAvailable() const { return mDialogs != nullptr; }
 
 bool NpcMenuBridge::canManageNpc() const { return mNpcs != nullptr; }
 
-//==== 前置连接（失败只记日志, 不影响其它功能） ====
+//================================================================
+// 前置连接（可选前置: 失败只记日志, 不影响插件其他功能）
+//================================================================
 void NpcMenuBridge::initialize() {
     if (mApi) return;
 
@@ -431,7 +446,9 @@ void NpcMenuBridge::shutdown() {
     }
 }
 
-//==== 状态与列表 ====
+//================================================================
+// 状态与列表
+//================================================================
 std::string NpcMenuBridge::statusText() const {
     std::ostringstream oss;
     if (!mApi) {
@@ -472,7 +489,9 @@ std::string NpcMenuBridge::listNpcsJson() const {
     return arr.dump(2);
 }
 
-//==== 对话渲染 ====
+//================================================================
+// 对话渲染
+//================================================================
 hologramlib::NpcDialogSpec NpcMenuBridge::buildSpec(
     Menu const&        menu,
     bool               withBack,
@@ -493,14 +512,8 @@ hologramlib::NpcDialogSpec NpcMenuBridge::buildSpec(
     if (spec.npcName.empty()) spec.npcName = "菜单";
     spec.sceneName = menu.id;
 
-    // 聊天框头像/载体自定义: avatarType 换载体实体类型（僵尸/鸡等）; avatarVariant 换 NPC 内置皮肤变体。
-    // 玩家模型/皮肤（avatarSkin）部分已移除 —— 库的 skin= 分支会关界面, type=minecraft:player 渲染不出内容。
-    if (!menu.npc.avatarType.empty()) {
-        spec.avatarViewSpec = "type=" + menu.npc.avatarType; // → 换载体实体类型
-    }
-    spec.avatarSkinVariant = menu.npc.avatarVariant;
-
-    // 正文: npc.dialogue 优先, 否则 content; 信息类按钮的文本也并进来
+    // 话语/正文: 菜单配置的 npc.dialogue 优先, 否则用 content;
+    // 再并入信息类按钮（header/label）的文本（原版对话框没有不可点击的行）
     std::string body = expandEscapedNewlines(
         stripFormatCodes(translateForPlayer(menu.npc.dialogue.empty() ? menu.content : menu.npc.dialogue, player))
     );
@@ -575,7 +588,10 @@ hologramlib::NpcDialogSpec NpcMenuBridge::buildSpec(
         return spec;
     }
 
-    // 分页: 每页内容 普通菜单 4 / 主菜单 5, 其余槽位放导航
+    // 分页模式（>6 个）: 每页内容项 普通菜单 4 / 主菜单 5, 其余槽位放导航
+    //   普通菜单: 首格「上一页」+ 末格「下一页」（前后对应, 6 = 1 + 4 + 1）
+    //   主菜单  : 只剩 1 格导航（6 = 5 + 1）→ 优先「下一页」, 最后一页显示「上一页」
+    // 需要「返回上一级」时请在菜单里自带一个返回按钮（分页模式槽位被内容与导航占满）
     size_t const pageSize = (menu.id == ConfigManager::getInstance().getConfig().mainMenuId) ? kPageSizeMain
                                                                                             : kPageSizeNormal;
     size_t const navSlots = kMaxDialogButtons - pageSize; // 2 或 1
@@ -669,7 +685,12 @@ bool NpcMenuBridge::renderScene(Player& player, std::string const& menuId, std::
         liveDialogId   = scene.dialogId;
     }
 
-    // 换页/进子菜单/返回一律走 open()（客户端点完就收起界面, update() 不会重新弹出）
+    // NPC 对话的换页/进子菜单/返回/命令后重推一律走 open()（重建载体）:
+    //   原版 NPC 对话界面在**点击任意按钮时客户端就自行收起**了, 而 INpcDialogue::update 只重发
+    //   一次 NpcDialoguePacket(Open) —— 客户端不会因此重新弹出界面（实测: 点了就关、没有新界面）。
+    //   只有 open() 会"删旧载体 + 建新载体 + 发 Open", 客户端才会再弹一次界面。
+    //   库侧已把点击后的清理改成"只清本次事件对应的对话", 所以在回调里同步重开不会被误删
+    //   （这正是之前"点了直接关闭、新层没出来"的根因）。
     int64_t dialogId = -1;
     try {
         dialogId = mDialogs->open(realName, spec);
@@ -733,7 +754,11 @@ bool NpcMenuBridge::openDialogue(Player& player, std::string const& menuId, std:
     return renderScene(player, id, npcName);
 }
 
-// 点击回调必须延迟一个 tick: 库在回调返回后才拆"当前对话 + 客户端载体", 立即 open 会被一起删掉。
+// 点按钮回调里的时序问题（必须延迟一 tick 的原因）:
+//   HologramLib 处理 NpcRequestPacket 的顺序是  dispatch(事件) → 回调返回后 才按玩家拆掉
+//   "当前对话记录 + 客户端载体实体"。如果我在回调里直接 open 下一层, 它会把我刚开的那层
+//   当作旧对话一起删掉 —— 表现就是"界面直接关闭, 新的一层没出来"。
+//   推迟一个 tick 后开, 清理已经完成, 新一层的载体和对话框包就不会被误删。
 bool NpcMenuBridge::openDialogueDeferred(Player& player, std::string const& menuId, std::string const& npcName) {
     if (!mDialogs) {
         player.sendMessage("§c[MeowMenu] HologramLib 未安装或版本不足, NPC 菜单不可用");
@@ -817,7 +842,13 @@ bool NpcMenuBridge::backDialogue(Player& player) {
     return true;
 }
 
-//==== 按钮执行（source: 来自哪种界面, 决定重推界面是否延迟） ====
+//================================================================
+// 按钮执行
+//
+// source = 这次执行是从哪来的:
+//   NpcDialog / Container → 处于点击回调内, 重推界面必须延迟一个 tick 且用对应样式
+//   Direct               → 脚本/API 触发, 不延迟
+//================================================================
 bool NpcMenuBridge::executeMenuButton(
     Player&            player,
     std::string const& menuId,
@@ -895,7 +926,8 @@ bool NpcMenuBridge::executeMenuButton(
     );
     ButtonHandler::handleButton(player, button);
 
-    // 点按钮触发的一律延迟一个 tick 再重推; 用哪种样式取决于来源界面
+    // 命令执行后重推当前层: 客户端点按钮后会自行收起界面, 且库在回调返回后才拆界面/载体,
+    // 所以点按钮触发的一律延迟一个 tick; 用哪种样式重推取决于本次是从哪种界面点进来的。
     std::string realName = player.getRealName();
     switch (source) {
     case ClickSource::Container: {
@@ -919,7 +951,9 @@ bool NpcMenuBridge::executeMenuButton(
     return true;
 }
 
-//==== 每玩家对话状态 ====
+//================================================================
+// 每玩家对话状态
+//================================================================
 void NpcMenuBridge::pushScene(std::string const& playerName, std::string const& menuId) {
     std::unique_lock lock(mMutex);
     mScenes[playerName].ancestors.push_back(menuId);
@@ -934,7 +968,9 @@ bool NpcMenuBridge::popScene(std::string const& playerName, std::string& outMenu
     return true;
 }
 
-//==== 监听回调 ====
+//================================================================
+// 监听回调
+//================================================================
 void NpcMenuBridge::onDialogClick(hologramlib::NpcDialogClickEvent const& event) {
     auto& logger = lib().getSelf().getLogger();
     try {
@@ -1026,7 +1062,15 @@ void NpcMenuBridge::onGhostInteract(hologramlib::GhostInteractEvent const& event
     openDialogue(*player, binding.menuId, binding.name);
 }
 
-//==== 箱子界面（虚拟容器）: 可点击按钮映射成物品格; 3 行 27 格放不下升 6 行 54 格, 再放不下分页 ====
+//================================================================
+// 箱子界面（HologramLib 的虚拟容器）
+//
+// 虚拟容器是"服务端没有真容器"的纯协议界面: 物品只是显示在那里, 点击/关闭由回包回调给出槽位号。
+// 因此把每个可点击按钮映射成一个物品格:
+//   槽位 → 菜单按钮下标（-1 = 返回上一级, -2 = 上一页, -3 = 下一页, -4 = 空槽/未使用）
+// 分页: 3 行 = 27 格, 放不下自动升到 6 行 54 格, 仍放不下才分页（导航格固定占本页末尾）。
+// 时序: 与 NPC 对话同理 —— 点击回调里重开界面必须延迟一 tick（见 scheduleRenderScene 的说明）。
+//================================================================
 
 bool NpcMenuBridge::isChestAvailable() const { return mContainers != nullptr; }
 
@@ -1155,7 +1199,8 @@ bool NpcMenuBridge::renderChestScene(Player& player, std::string const& menuId, 
         scene.page             = page;
         bool withBack          = !scene.ancestors.empty();
         spec                   = buildChestSpec(*menu, withBack, &player, scene);
-        // 就地刷新要求格子数不变; 行数变了（3 行 <-> 6 行）必须 open() 才有正确格子数
+        // 就地刷新只在"格子数不变"时可用: 同一个方块容器的槽位数是打开时定的,
+        // 行数变了（3 行 <-> 6 行, 例如翻页跨到另一个菜单）必须重新 open 才有正确格子数。
         if (scene.rows == spec.rows) {
             liveContainerId = scene.containerId;
         } else {
@@ -1163,7 +1208,12 @@ bool NpcMenuBridge::renderChestScene(Player& player, std::string const& menuId, 
         }
     }
 
-    // 翻页/进子菜单/返回走 update()（复用载体方块, 无延迟无闪烁）; 没有活箱子时才 open()
+    // 库调用不持锁（回包回调会取同一把锁）
+    //
+    // 翻页 / 进子菜单 / 返回 / 命令后重推都走 update(): 复用同一个载体方块, 只重发方块实体 NBT
+    // 与 ContainerOpen —— 不拆界面、不重发方块、不用等 openDelayTicks, 所以没有那 0.5 秒延迟,
+    // 也没有闪烁。只有"这个玩家当前没有活着的箱子"（首次打开 / 被关过 / 样式切换）时才走 open()。
+    // 配置可关闭"就地刷新"（回退整体重开, 更慢但兼容性最稳）
     if (inPlace && !ConfigManager::getInstance().getConfig().chestInPlaceRefresh) {
         inPlace = false;
     }
@@ -1177,7 +1227,10 @@ bool NpcMenuBridge::renderChestScene(Player& player, std::string const& menuId, 
             updated = false;
         }
         if (updated) {
-            // update() 后客户端不会重读方块实体, 再用 setItem 逐格推一遍才真正换页
+            // update() 只重发方块实体 NBT + ContainerOpen, 而客户端对"已经打开的容器"不会因此重读
+            // 方块实体 —— 实测结果是内容不变（服务端已换页, 客户端还是旧的一页, 点格子就对不上了）。
+            // 所以这里再用 setItem 逐格推一遍: InventorySlot 是真实箱子同步内容用的同一种包,
+            // 客户端会就地替换对应格, 于是整页内容无延迟、无闪烁地换掉。
             for (size_t slot = 0; slot < spec.items.size(); ++slot) {
                 try {
                     if (mContainers->setItem(liveContainerId, static_cast<int>(slot), spec.items[slot])) ++pushedSlots;
@@ -1217,7 +1270,9 @@ bool NpcMenuBridge::renderChestScene(Player& player, std::string const& menuId, 
     return true;
 }
 
-// 按槽刷新: 只发一条 InventorySlot, 客户端就地换格（itemType 空 = 清空）
+// 按槽刷新当前箱子界面的某一格（HologramLib 的 setItem: 只发一条 InventorySlot,
+// 客户端就地换掉那一格 —— 不重发方块实体、不重开界面, 无延迟无闪烁）。
+// itemType 为空 = 清空该格。供"任务打勾 / 数量变化 / 价格变化"这类单格改动使用。
 bool NpcMenuBridge::refreshChestSlot(
     Player&            player,
     int                slot,
@@ -1382,7 +1437,8 @@ void NpcMenuBridge::onContainerClick(hologramlib::ContainerClickEvent const& eve
         else if (action == -3) what = "下一页";
         logger.info("箱子界面点击: player={} menu={} slot={} → {}", event.playerName, menuId, event.slot, what);
 
-        // 容器点击不拆界面, 直接渲染; 需要延迟的只有 NPC 对话那条线
+        // 容器点击不会拆界面（库只在"关闭"时才拆）, 所以这里直接渲染, 不必延迟;
+        // 真正需要延迟的只有 NPC 对话那条线（详见 scheduleRenderScene 注释）。
         if (action == -4) return;
         if (action == -1) {
             std::string parent;
@@ -1405,7 +1461,9 @@ void NpcMenuBridge::onContainerClick(hologramlib::ContainerClickEvent const& eve
     }
 }
 
-//==== NPC 生成与绑定 ====
+//================================================================
+// NPC 生成与绑定
+//================================================================
 int64_t NpcMenuBridge::spawnNpcNear(Player& opPlayer, std::string const& npcName, std::string const& menuId) {
     if (!canManageNpc()) {
         opPlayer.sendMessage("§c[MeowMenu] HologramLib 不可用或缺少 NPC 域, 无法生成菜单 NPC");
@@ -1573,7 +1631,9 @@ bool NpcMenuBridge::reloadBindings() {
     return true;
 }
 
-//==== 持久化 ====
+//================================================================
+// 持久化
+//================================================================
 void NpcMenuBridge::loadBindings() {
     std::vector<NpcBinding> loaded;
     try {

@@ -1,4 +1,4 @@
-# xmake 构建产物
+# xmake build artifacts
 .xmake/
 build/
 bin/
@@ -9,7 +9,7 @@ bin/
 *.vcxproj.filters
 *.sln
 
-# 编译产物
+# Compiled files
 *.obj
 *.obj.d
 *.dll
@@ -20,15 +20,9 @@ bin/
 *.pdb
 *.ilk
 
-# 不进仓库: 文档/测试/示例（仅本机保留）
-docs/
-tests/
-scripts/
-
-# 本地备份 / 构建日志
-*.bak-*
-*.old-*
-build_log.txt
+# 注意: src/embedded_texture_path.h 是编译期嵌入的图标库，随源码一并提交，
+# 以免构建依赖外部 plugins/Meow/textures/texture_path.json。
+# 内容变更时可选地运行 gen_texture_path_embed.ps1 重新生成。
 
 # IDE
 .idea/
@@ -39,8 +33,12 @@ build_log.txt
 .DS_Store
 Thumbs.db
 
-# 日志
+# Logs
 *.log
 
-# 注: src/embedded_texture_path.h（编译期嵌入的图标库）随源码提交, 保证开箱即可构建;
-# 需重新生成时运行 gen_texture_path_embed.ps1。
+# 本地诊断 / 部署临时产物
+build_log.txt
+symbol_missing*
+*.bak-*
+*.old
+

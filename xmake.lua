@@ -1,9 +1,11 @@
-﻿add_rules("mode.debug", "mode.release")
+add_rules("mode.debug", "mode.release")
 
 -- 优先使用本地缓存的 liteldev-repo，回退到 GitHub 远程
 -- 依次尝试：MeowMenu 自身、兄弟插件、根目录的本地仓库
 local function find_local_repo()
     local candidates = {
+        -- 服务器根目录的离线仓库（26.60 SDK，预构建 levilamina 26.60.0）
+        path.join(os.projectdir(), "..", "..", ".llsdk", "liteldev-repo"),
         path.join(os.projectdir(), ".xmake", os.host(), os.arch(), "repositories", "liteldev-repo"),
         path.join(os.projectdir(), "..", "RecipeExporter", ".xmake", os.host(), os.arch(), "repositories", "liteldev-repo"),
         path.join(os.projectdir(), "..", "MeowSidebar", ".xmake", os.host(), os.arch(), "repositories", "liteldev-repo"),
@@ -11,7 +13,7 @@ local function find_local_repo()
         path.join(os.projectdir(), "..", ".xmake", os.host(), os.arch(), "repositories", "liteldev-repo"),
     }
     for _, p in ipairs(candidates) do
-        if os.exists(p) then return p end
+        if os.exists(path.join(p, "packages", "l", "levilamina", "versions", "26_60_0.lua")) then return p end
     end
     return nil
 end
@@ -23,9 +25,14 @@ else
 end
 
 if is_config("target_type", "server") then
-    add_requires("levilamina 26.40.0", {configs = {target_type = "server"}})
+    add_requires("levilamina 26.60.0", {configs = {target_type = "server"}})
 else
-    add_requires("levilamina 26.40.0", {configs = {target_type = "client"}})
+    add_requires("levilamina 26.60.0", {configs = {target_type = "client"}})
+end
+
+-- 插件统一用 clang-cl（与 LeviLamina 本体一致；缓存里的依赖包也是这套工具链）
+if is_plat("windows") then
+    set_toolchains("clang-cl")
 end
 
 add_requires("levibuildscript")
@@ -98,7 +105,6 @@ target("MeowMenu")
     add_files("src/MigrationManager.cpp")
     add_files("src/NpcMenuBridge.cpp")
     add_files("src/PlayerUiPref.cpp")
-    add_files("src/PlayerRecord.cpp")
     add_files("src/ExportApi.cpp")
     add_files("src/MemoryOperators.cpp")
 
@@ -113,11 +119,66 @@ target("MeowMenu")
     end
 
     after_build(function (target)
-        local output_dir = "$(projectdir)/"
-        os.mkdir(output_dir)
-        os.cp(target:targetfile(), output_dir)
-        local pdb_file = path.join(path.directory(target:targetfile()), "MeowMenu.pdb")
-        if os.exists(pdb_file) then
-            os.cp(pdb_file, output_dir)
+        local projectdir = os.projectdir()
+        -- 部署单个文件：直接 cp 失败（目标被正在跑的服务端加载占用）就改名旧文件再拷。
+        -- 注意：xmake 回调沙箱里没有 pcall，用 try/catch（在回调环境里才有）。
+        local function deploy(src, dst)
+            if not os.isfile(src) then
+                return false
+            end
+            local ok = false
+            try {
+                function ()
+                    os.cp(src, dst, {force = true})
+                    ok = true
+                end,
+                catch {
+                    function (e)
+                    end
+                }
+            }
+            if ok then
+                return true
+            end
+            local backup = dst .. ".old"
+            try {
+                function ()
+                    os.rm(backup)
+                end,
+                catch {
+                    function (e)
+                    end
+                }
+            }
+            try {
+                function ()
+                    os.mv(dst, backup)
+                end,
+                catch {
+                    function (e)
+                    end
+                }
+            }
+            try {
+                function ()
+                    os.cp(src, dst, {force = true})
+                    ok = true
+                end,
+                catch {
+                    function (e)
+                    end
+                }
+            }
+            if ok then
+                cprint("${yellow}[deploy]: ${reset}目标被占用，旧文件改名为 " .. backup)
+            else
+                print("warn: 部署失败（文件被占用且改名失败）: " .. dst)
+            end
+            return ok
         end
+
+        local dll = target:targetfile()
+        local pdb = path.join(path.directory(dll), "MeowMenu.pdb")
+        deploy(dll, path.join(projectdir, "MeowMenu.dll"))
+        deploy(pdb, path.join(projectdir, "MeowMenu.pdb"))
     end)

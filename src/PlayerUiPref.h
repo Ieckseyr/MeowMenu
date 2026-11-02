@@ -1,5 +1,12 @@
-// PlayerUiPref.h - 玩家自选的界面样式（/mmenu ui; auto = 跟随菜单）
-// 持久化: Meowdata/MeowMenu/player_ui.json
+// PlayerUiPref.h - 玩家自选的界面样式偏好
+//
+// 玩家可以用 /mmenu ui 选择自己喜欢的菜单呈现方式（表单 / NPC 对话 / 箱子），
+// 与「菜单自身配置的模式」的关系:
+//   玩家选了具体样式 → 优先按玩家样式渲染（前提是该样式当前可用）
+//   玩家选「跟随菜单」(auto, 默认) → 按菜单自己配置的模式渲染
+//
+// 持久化: Meowdata/MeowMenu/player_ui.json = {"<xuid>": "auto|form|npc|chest"}
+// 与 item_triggers.json 一样用平铺对象, 便于手改与外部脚本维护。
 #pragma once
 
 #include <shared_mutex>

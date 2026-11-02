@@ -129,7 +129,9 @@ void ButtonHandler::handleButton(Player& player, Button const& button) {
     }
 }
 
-//==== NPC 菜单按钮（HologramLib 可选前置） ====
+//================================================================
+// NPC 菜单按钮（HologramLib 可选前置）
+//================================================================
 void ButtonHandler::openNpcMenu(Player& player, std::string const& menuId) {
     auto& bridge = NpcMenuBridge::getInstance();
     if (!bridge.isAvailable()) {

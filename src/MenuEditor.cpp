@@ -80,28 +80,6 @@ static std::shared_ptr<Menu> getMenuForEdit(std::string const& menuId) {
     return MenuStore::getInstance().getMenu(menuId);
 }
 
-// 去掉首尾空白
-static std::string trim(std::string s) {
-    size_t b = s.find_first_not_of(" \t\r\n");
-    if (b == std::string::npos) return std::string{};
-    size_t e = s.find_last_not_of(" \t\r\n");
-    return s.substr(b, e - b + 1);
-}
-
-// 菜单分级的可读文本（编辑页 / 分级页共用）
-static std::string describeLevel(Menu const& menu, std::string const& menuId, std::string const& mainMenuId) {
-    if (menu.isSecondary()) {
-        return "§e二级菜单§7(只能从其它菜单进入)";
-    }
-    if (menuId == mainMenuId) {
-        return "§a一级菜单§7(主菜单 · 触发物品固定为钟)";
-    }
-    if (!menu.triggerItem.configured()) {
-        return "§a一级菜单§7(§c未配置触发物品§7 → 只能用菜单按钮打开)";
-    }
-    return "§a一级菜单§7(触发物品: §f" + menu.triggerItem.label() + "§7)";
-}
-
 // 保存菜单并通知玩家
 static void saveMenuAndNotify(Player& player, Menu const& menu) {
     if (MenuStore::getInstance().saveMenu(menu)) {
@@ -111,7 +89,9 @@ static void saveMenuAndNotify(Player& player, Menu const& menu) {
     }
 }
 
-//==== 菜单列表 ====
+//================================================================
+// 菜单列表
+//================================================================
 void showMenuList(Player& player) {
     auto ids = MenuStore::getInstance().getAllMenuIds();
     if (ids.empty()) {
@@ -138,7 +118,9 @@ void showMenuList(Player& player) {
     fm.sendTo(player);
 }
 
-//==== 编辑指定菜单 ====
+//================================================================
+// 编辑指定菜单
+//================================================================
 void showEditMenu(Player& player, std::string const& menuId) {
     auto menu = getMenuForEdit(menuId);
     if (!menu) {
@@ -150,9 +132,8 @@ void showEditMenu(Player& player, std::string const& menuId) {
     auto fm = SimpleForm{};
     fm.setTitle("§l§b编辑菜单: " + menuId);
     fm.setContent(fmt::format(
-        "§7标题: {}\n§7内容: {}\n§7按钮数: {}\n§7分级: {}\n§7DogeUI: {}\n§7NPC 对话模式: {}",
+        "§7标题: {}\n§7内容: {}\n§7按钮数: {}\n§7DogeUI: {}\n§7NPC 对话模式: {}",
         menu->title, menu->content, menu->buttons.size(),
-        describeLevel(*menu, menuId, ConfigManager::getInstance().getConfig().mainMenuId),
         menu->dogeui.enabled ? "§a启用(前缀:" + menu->dogeui.prefix + ")" : "§c禁用",
         menu->isNpcMode() ? fmt::format("§a启用(NPC名:{} 按钮:{}/6)",
                                         menu->npc.name.empty() ? "菜单标题" : menu->npc.name,
@@ -171,9 +152,6 @@ void showEditMenu(Player& player, std::string const& menuId) {
 
     fm.appendButton("§l§b显示模式\n§7跟随玩家 / 表单 / NPC 对话 / 箱子", "textures/ui/icon_book_writable", "path",
         [menuId](Player& pl) { showUiModeSettings(pl, menuId); });
-
-    fm.appendButton("§l§b菜单分级 / 触发物品\n§7一级: 可用触发物品打开 / 二级: 只能从菜单进入", "textures/ui/icon_map", "path",
-        [menuId](Player& pl) { showMenuLevelSettings(pl, menuId); });
 
     fm.appendButton("§l§bNPC 对话设置\n§7对话框 NPC 名 / 话语正文（NPC 样式用）", "textures/ui/icon_steve", "path",
         [menuId](Player& pl) { showNpcSettings(pl, menuId); });
@@ -203,7 +181,9 @@ void showEditMenu(Player& player, std::string const& menuId) {
     fm.sendTo(player);
 }
 
-//==== 编辑标题和内容 ====
+//================================================================
+// 编辑标题和内容
+//================================================================
 void showEditTitleContent(Player& player, std::string const& menuId) {
     auto menu = getMenuForEdit(menuId);
     if (!menu) {
@@ -229,7 +209,9 @@ void showEditTitleContent(Player& player, std::string const& menuId) {
     });
 }
 
-//==== 添加菜单项（类型选择） ====
+//================================================================
+// 添加菜单项（类型选择）
+//================================================================
 void showAddButton(Player& player, std::string const& menuId) {
     auto fm = SimpleForm{};
     fm.setTitle("§l§b添加菜单项");
@@ -252,7 +234,14 @@ void showAddButton(Player& player, std::string const& menuId) {
     fm.sendTo(player);
 }
 
-//==== 添加 NPC 菜单按钮（npc_menu = NPC 对话呈现; npc_spawn = 生成可右键的 NPC） ====
+//================================================================
+// 添加 NPC 菜单按钮（类型选择）
+//
+// NPC 按钮需要服务器安装 HologramLib（可选前置）:
+//   npc_menu  - 点按钮把目标菜单呈现成原版 NPC 对话框（多层级 + 返回上一级）
+//   npc_spawn - 点按钮在身前生成一只 NPC, 右键它即打开目标菜单（持久化, 重启自动重建）
+// 两种都由 ButtonHandler 分发到 NpcMenuBridge; 前置缺失时按钮会明确提示而不是静默无反应。
+//================================================================
 void showAddNpcButtonType(Player& player, std::string const& menuId) {
     auto fm = SimpleForm{};
     fm.setTitle("§l§bNPC 菜单按钮");
@@ -271,7 +260,9 @@ void showAddNpcButtonType(Player& player, std::string const& menuId) {
     fm.sendTo(player);
 }
 
-//==== 添加 NPC 菜单按钮（表单） ====
+//================================================================
+// 添加 NPC 菜单按钮（表单）
+//================================================================
 void showAddNpcButtonForm(Player& player, std::string const& menuId, std::string const& npcType) {
     bool isSpawn = npcType == "npc_spawn";
 
@@ -318,7 +309,9 @@ void showAddNpcButtonForm(Player& player, std::string const& menuId, std::string
     });
 }
 
-//==== 添加普通按钮（表单） ====
+//================================================================
+// 添加普通按钮（表单）
+//================================================================
 void showAddButtonForm(Player& player, std::string const& menuId) {
     auto fm = CustomForm{"§l§b添加按钮"};
     fm.appendInput("text", "§e按钮文本", "string", "§a新按钮");
@@ -373,7 +366,9 @@ void showAddButtonForm(Player& player, std::string const& menuId) {
     });
 }
 
-//==== 添加显示项（header / label / divider） ====
+//================================================================
+// 添加显示项（header / label / divider）
+//================================================================
 void showAddDisplayItemForm(Player& player, std::string const& menuId, std::string const& itemType) {
     std::string label;
     std::string defText;
@@ -408,7 +403,9 @@ void showAddDisplayItemForm(Player& player, std::string const& menuId, std::stri
     });
 }
 
-//==== 编辑按钮 ====
+//================================================================
+// 编辑按钮
+//================================================================
 void showEditButton(Player& player, std::string const& menuId, int buttonIndex) {
     auto menu = getMenuForEdit(menuId);
     if (!menu || buttonIndex < 0 || buttonIndex >= (int)menu->buttons.size()) {
@@ -464,7 +461,9 @@ void showEditButton(Player& player, std::string const& menuId, int buttonIndex) 
     });
 }
 
-//==== 删除按钮选择器 ====
+//================================================================
+// 删除按钮选择器
+//================================================================
 void showDeleteButtonSelector(Player& player, std::string const& menuId) {
     auto menu = getMenuForEdit(menuId);
     if (!menu) {
@@ -522,7 +521,9 @@ void showDeleteButtonSelector(Player& player, std::string const& menuId) {
     fm.sendTo(player);
 }
 
-//==== 删除菜单二次确认 ====
+//================================================================
+// 删除菜单二次确认
+//================================================================
 void showDeleteMenuConfirm(Player& player, std::string const& menuId) {
     auto menu = getMenuForEdit(menuId);
     if (!menu) {
@@ -551,7 +552,9 @@ void showDeleteMenuConfirm(Player& player, std::string const& menuId) {
     });
 }
 
-//==== 从手持物品设置按钮图标（选择按钮列表） ====
+//================================================================
+// 从手持物品设置按钮图标（选择按钮列表）
+//================================================================
 void showIconFromHandSelector(Player& player, std::string const& menuId) {
     auto menu = getMenuForEdit(menuId);
     if (!menu) {
@@ -590,7 +593,9 @@ void showIconFromHandSelector(Player& player, std::string const& menuId) {
     fm.sendTo(player);
 }
 
-//==== 从手持物品设置指定按钮的图标 ====
+//================================================================
+// 从手持物品设置指定按钮的图标
+//================================================================
 void setButtonIconFromHand(Player& player, std::string const& menuId, int buttonIndex) {
     auto menu = getMenuForEdit(menuId);
     if (!menu || buttonIndex < 0 || buttonIndex >= (int)menu->buttons.size()) {
@@ -655,7 +660,11 @@ static bool formResultToBool(CustomFormElementResult const& v) {
     return false;
 }
 
-//==== 按钮操作页（编辑 / 排序 / 图标 / 删除） ====
+//================================================================
+// 按钮操作页（编辑 / 排序 / 图标 / 删除）
+//
+// 顺序 = 菜单里的排列顺序, 箱子界面与 NPC 对话都按这个顺序占格/占槽, 所以排序在这里做。
+//================================================================
 void showButtonActions(Player& player, std::string const& menuId, int buttonIndex) {
     auto menu = getMenuForEdit(menuId);
     if (!menu || buttonIndex < 0 || buttonIndex >= static_cast<int>(menu->buttons.size())) {
@@ -768,7 +777,9 @@ void toggleUiAllowed(Player& player, std::string const& menuId, std::string cons
     showUiModeSettings(player, menuId);
 }
 
-//==== 显示模式（菜单自身样式; 玩家可用 /mmenu ui 覆盖） ====
+//================================================================
+// 显示模式（菜单自身配置的样式; 玩家可用 /mmenu ui 覆盖）
+//================================================================
 void showUiModeSettings(Player& player, std::string const& menuId) {
     auto menu = getMenuForEdit(menuId);
     if (!menu) {
@@ -808,7 +819,7 @@ void showUiModeSettings(Player& player, std::string const& menuId) {
                          || (option.mode[0] == 'd' && menu->renderMode != "npc" && menu->renderMode != "chest");
         std::string text = fmt::format(
             "{}{}\n§7{}",
-            isCurrent ? "§a " : "§l",
+            isCurrent ? "§a✔ " : "§l",
             option.label,
             option.available ? option.desc : "§c需要服务器安装 HologramLib"
         );
@@ -843,11 +854,11 @@ void showUiModeSettings(Player& player, std::string const& menuId) {
                 "§7表单是任何情况下的兜底渲染, 不能被关闭。"
             );
             fm2.appendButton(
-                fmt::format("{}NPC 对话§7(最多 6 按钮 / 不解析 § 颜色码)", npcAllowed ? "§a " : "§c✘ "),
+                fmt::format("{}NPC 对话§7(最多 6 按钮 / 不解析 § 颜色码)", npcAllowed ? "§a✔ " : "§c✘ "),
                 [menuId](Player& p2) { toggleUiAllowed(p2, menuId, "npc"); }
             );
             fm2.appendButton(
-                fmt::format("{}箱子界面§7(格子即按钮 / 支持染色)", chestAllowed ? "§a " : "§c✘ "),
+                fmt::format("{}箱子界面§7(格子即按钮 / 支持染色)", chestAllowed ? "§a✔ " : "§c✘ "),
                 [menuId](Player& p2) { toggleUiAllowed(p2, menuId, "chest"); }
             );
             fm2.appendButton("§l§c返回显示模式", [menuId](Player& p2) { showUiModeSettings(p2, menuId); });
@@ -859,229 +870,15 @@ void showUiModeSettings(Player& player, std::string const& menuId) {
     fm.sendTo(player);
 }
 
-//==== 菜单分级 / 触发物品: 一级可被触发物品打开; 二级只能从别处进入 ====
-
-// 触发物品类型规范化: 空串 = 清除, 无命名空间按 minecraft: 补全, 钟留给主菜单
-static bool validateTriggerType(
-    Player&             player,
-    std::string const&  menuId,
-    std::string         input,
-    std::string&        outType
-) {
-    std::string type = trim(input);
-    if (type.empty()) {
-        outType.clear();
-        return true;
-    }
-    if (type.find(':') == std::string::npos) {
-        type = "minecraft:" + type;
-    }
-
-    if (type == "minecraft:clock") {
-        player.sendMessage("§c[MeowMenu] 钟固定用于打开主菜单, 换一个物品吧（例如 minecraft:compass）");
-        return false;
-    }
-
-    std::string owner = MenuStore::getInstance().findMenuByTriggerItem(type);
-    if (!owner.empty() && owner != menuId) {
-        player.sendMessage(fmt::format(
-            "§c[MeowMenu] 物品 §f{} §c已经被菜单 §f{} §c用作触发物品了（一个物品只能绑一个一级菜单）",
-            type,
-            owner
-        ));
-        return false;
-    }
-
-    outType = type;
-    return true;
-}
-
-void showMenuLevelSettings(Player& player, std::string const& menuId) {
-    auto menu = getMenuForEdit(menuId);
-    if (!menu) {
-        player.sendMessage("§c[MeowMenu] 菜单不存在: " + menuId);
-        showMenuList(player);
-        return;
-    }
-
-    bool isMain = (menuId == ConfigManager::getInstance().getConfig().mainMenuId);
-
-    std::string triggerLine;
-    if (isMain) {
-        triggerLine = "§7触发物品: §f钟 minecraft:clock §7（主菜单固定, 进服自动发放）";
-    } else if (menu->isSecondary()) {
-        triggerLine = menu->triggerItem.configured()
-                          ? fmt::format(
-                                "§7触发物品: §8{}§7（已填写, §c但二级菜单不生效§7）",
-                                menu->triggerItem.label()
-                            )
-                          : "§7触发物品: §8未配置§7（二级菜单用不到）";
-    } else {
-        triggerLine = menu->triggerItem.configured()
-                          ? fmt::format(
-                                "§7触发物品: §f{} §7（类型 §8{}§7）",
-                                menu->triggerItem.label(),
-                                menu->triggerItem.type
-                            )
-                          : "§7触发物品: §c未配置§7 → 现在只能用菜单按钮打开它";
-    }
-
-    auto fm = SimpleForm{};
-    fm.setTitle("§l§b菜单分级: " + menuId);
-    fm.setContent(fmt::format(
-        "§7当前: {}\n{}\n\n"
-        "§7一级菜单§7: 既能被其它菜单打开, 也能用触发物品直接打开\n"
-        "§7二级菜单§7: 只能从其它菜单进入, 触发物品填了也不生效\n"
-        "§7主菜单§7: 默认的一级菜单, 触发物品固定是钟",
-        menu->isPrimary() ? "§a一级菜单" : "§e二级菜单",
-        triggerLine
-    ));
-
-    // 分级切换（主菜单固定一级: 它的触发物品就是钟, 标成二级会让玩家手里的钟失效）
-    if (isMain) {
-        fm.appendLabel("§8主菜单固定为一级菜单（触发物品: 钟, 进服自动发放）");
-    } else if (menu->isPrimary()) {
-        fm.appendButton("§l§e改为二级菜单\n§7只能从其它菜单进入（触发物品不再生效）", [menuId](Player& pl) {
-            auto m = getMenuForEdit(menuId);
-            if (!m) return;
-            m->level = 2;
-            saveMenuAndNotify(pl, *m);
-            pl.sendMessage("§7已改为二级菜单: 触发物品即使填了也不会生效");
-            showMenuLevelSettings(pl, menuId);
-        });
-    } else {
-        fm.appendButton("§l§a改为一级菜单\n§7可以用触发物品直接打开（需要填触发物品）", [menuId](Player& pl) {
-            auto m = getMenuForEdit(menuId);
-            if (!m) return;
-            m->level = 1;
-            saveMenuAndNotify(pl, *m);
-            pl.sendMessage("§7已改为一级菜单: 记得设置触发物品, 否则只能用菜单按钮打开");
-            showMenuLevelSettings(pl, menuId);
-        });
-    }
-
-    // 触发物品（只有一级菜单用得着; 主菜单固定用钟）
-    if (menu->isPrimary() && !isMain) {
-        fm.appendButton("§l§b设置触发物品\n§7手输物品ID, 如 minecraft:compass", "textures/ui/icon_recipe_item", "path",
-            [menuId](Player& pl) { showTriggerItemForm(pl, menuId); });
-        fm.appendButton("§l§a从手持物品设置触发物品\n§7拿在手上, 点这里即可", "textures/ui/subcategory_icons/hands", "path",
-            [menuId](Player& pl) { setTriggerItemFromHand(pl, menuId); });
-        if (menu->triggerItem.configured()) {
-            fm.appendButton("§l§c清除触发物品\n§7清除后只能用菜单按钮打开", [menuId](Player& pl) {
-                clearTriggerItem(pl, menuId);
-            });
-        }
-    }
-    if (menu->isSecondary() && menu->triggerItem.configured()) {
-        fm.appendButton("§l§c清除已填的触发物品\n§7二级菜单用不到, 可清掉避免误解", [menuId](Player& pl) {
-            clearTriggerItem(pl, menuId);
-        });
-    }
-
-    fm.appendButton("§l§c返回菜单编辑", [menuId](Player& pl) { showEditMenu(pl, menuId); });
-    fm.sendTo(player);
-}
-
-// 公开版本: 新建菜单表单（MenuEditorTools）也走同一套校验
-bool validateTriggerItemType(
-    Player&             player,
-    std::string const&  menuId,
-    std::string const&  input,
-    std::string&        outType
-) {
-    return validateTriggerType(player, menuId, input, outType);
-}
-
-void showTriggerItemForm(Player& player, std::string const& menuId) {
-    auto menu = getMenuForEdit(menuId);
-    if (!menu) {
-        player.sendMessage("§c[MeowMenu] 菜单不存在: " + menuId);
-        showMenuList(player);
-        return;
-    }
-
-    auto fm = CustomForm{"§l§b触发物品: " + menuId};
-    fm.appendLabel("§7一级菜单的触发物品: 玩家手持它右键即可打开这个菜单");
-    fm.appendInput("type", "§e物品类型ID§7(留空 = 清除)", "minecraft:compass", menu->triggerItem.type);
-    fm.appendInput("displayName", "§b显示名§7(可选, 消息里用它)", "商店菜单", menu->triggerItem.displayName);
-
-    fm.sendTo(player, [menuId](Player& pl, CustomFormResult res, ll::form::FormCancelReason) {
-        if (!res.has_value()) { showMenuLevelSettings(pl, menuId); return; }
-        auto menu = getMenuForEdit(menuId);
-        if (!menu) { pl.sendMessage("§c菜单不存在"); return; }
-
-        std::string type, name;
-        try {
-            type = std::get<std::string>(res->at("type"));
-            name = std::get<std::string>(res->at("displayName"));
-        } catch (...) {}
-
-        std::string checked;
-        if (!validateTriggerType(pl, menuId, type, checked)) {
-            showTriggerItemForm(pl, menuId);
-            return;
-        }
-
-        menu->triggerItem.type        = checked;
-        menu->triggerItem.displayName = checked.empty() ? std::string{} : trim(name);
-        saveMenuAndNotify(pl, *menu);
-        if (checked.empty()) {
-            pl.sendMessage("§7已清除触发物品");
-        } else {
-            pl.sendMessage(fmt::format("§a[MeowMenu] 触发物品已设为 §f{}", menu->triggerItem.label()));
-        }
-        showMenuLevelSettings(pl, menuId);
-    });
-}
-
-void setTriggerItemFromHand(Player& player, std::string const& menuId) {
-    auto menu = getMenuForEdit(menuId);
-    if (!menu) {
-        player.sendMessage("§c[MeowMenu] 菜单不存在: " + menuId);
-        showMenuList(player);
-        return;
-    }
-
-    std::string type;
-    std::string customName;
-    try {
-        auto& handItem = player.getCarriedItem();
-        if (handItem.isNull()) {
-            player.sendMessage("§c[MeowMenu] 请先手持要作为触发物品的物品");
-            showMenuLevelSettings(player, menuId);
-            return;
-        }
-        type       = handItem.getTypeName();
-        customName = handItem.getCustomName();
-    } catch (std::exception const& e) {
-        player.sendMessage(fmt::format("§c[MeowMenu] 获取手持物品失败: {}", e.what()));
-        showMenuLevelSettings(player, menuId);
-        return;
-    }
-
-    std::string checked;
-    if (!validateTriggerType(player, menuId, type, checked) || checked.empty()) {
-        showMenuLevelSettings(player, menuId);
-        return;
-    }
-
-    menu->triggerItem.type        = checked;
-    menu->triggerItem.displayName = trim(customName);
-    saveMenuAndNotify(player, *menu);
-    player.sendMessage(fmt::format("§a[MeowMenu] 触发物品已设为 §f{} §a(手持它右键即可打开本菜单)",
-                                   menu->triggerItem.label()));
-    showMenuLevelSettings(player, menuId);
-}
-
-void clearTriggerItem(Player& player, std::string const& menuId) {
-    auto menu = getMenuForEdit(menuId);
-    if (!menu) return;
-    menu->triggerItem = MenuTriggerItem{};
-    saveMenuAndNotify(player, *menu);
-    player.sendMessage("§7已清除触发物品: 本菜单只能用菜单按钮打开");
-    showMenuLevelSettings(player, menuId);
-}
-//==== NPC 对话模式（可选前置 HologramLib）: 名/话语取自 npc.name / npc.dialogue ====
+//================================================================
+// NPC 对话模式设置（可选前置 HologramLib）
+//
+// 开启后该菜单**被任何入口打开时都直接以原版 NPC 对话界面呈现**
+// （/mmenu、子菜单按钮、触发物品、RemoteCall renderMenu 全部一致）。
+//   对话框里的 NPC 名 = npc.name（空则用菜单标题）
+//   话语/正文        = npc.dialogue（空则用菜单 content）; 单行输入里用 \n 表示换行
+// 原版对话框最多 6 个按钮槽位; 关闭对话按 ESC。
+//================================================================
 void showNpcSettings(Player& player, std::string const& menuId) {
     auto menu = getMenuForEdit(menuId);
     if (!menu) {
@@ -1132,7 +929,9 @@ void showNpcSettings(Player& player, std::string const& menuId) {
     });
 }
 
-//==== DogeUI 设置（每菜单独立） ====
+//================================================================
+// DogeUI 设置（每菜单独立）
+//================================================================
 void showDogeUISettings(Player& player, std::string const& menuId) {
     auto menu = getMenuForEdit(menuId);
     if (!menu) {
@@ -1163,15 +962,14 @@ void showDogeUISettings(Player& player, std::string const& menuId) {
     });
 }
 
-//==== 物品设置 ====
+//================================================================
+// 物品设置
+//================================================================
 void showItemSettings(Player& player) {
     auto const& cfg = ConfigManager::getInstance().getConfig();
     auto const& triggerCfg = cfg.triggerItem;
 
     auto fm = CustomForm{"§l§b物品设置"};
-    fm.appendLabel("§7这里是内置钟物品（§f主菜单§7的触发物品, 进服自动发放）的显示名/消息占位;");
-    fm.appendLabel("§7物品本体 NBT 固定, 不受这里影响。");
-    fm.appendLabel("§7其它菜单要配触发物品: 菜单编辑页 → 「菜单分级 / 触发物品」");
     fm.appendInput("type", "§e物品类型ID", "string", triggerCfg.type);
     fm.appendInput("displayName", "§b显示名称", "string", triggerCfg.displayName);
     fm.appendInput("snbt", "§d物品SNBT(留空使用默认)", "string", triggerCfg.snbt);
@@ -1190,7 +988,9 @@ void showItemSettings(Player& player) {
     });
 }
 
-//==== 从手持物品设置 ====
+//================================================================
+// 从手持物品设置
+//================================================================
 void setItemFromHand(Player& player) {
     try {
         auto& handItem = player.getCarriedItem();
@@ -1227,7 +1027,9 @@ void setItemFromHand(Player& player) {
     }
 }
 
-//==== 编辑器主界面 ====
+//================================================================
+// 编辑器主界面
+//================================================================
 void showEditorMain(Player& player) {
     auto fm = SimpleForm{};
     fm.setTitle("§l§bMeowMenu 编辑器");
@@ -1239,10 +1041,10 @@ void showEditorMain(Player& player) {
     fm.appendButton("§l§e菜单列表\n§7查看/编辑/删除菜单", "textures/ui/icon_book_writable", "path",
         [](Player& pl) { showMenuList(pl); });
 
-    fm.appendButton("§l§d物品设置\n§7内置钟（主菜单触发物品）的显示名/消息占位", "textures/ui/icon_recipe_nature", "path",
+    fm.appendButton("§l§d物品设置\n§7配置触发物品", "textures/ui/icon_recipe_nature", "path",
         [](Player& pl) { showItemSettings(pl); });
 
-    fm.appendButton("§l§a从手持物品设置\n§7把手中物品设为钟的显示名（不改变物品本体）", "textures/ui/subcategory_icons/hands", "path",
+    fm.appendButton("§l§a从手持物品设置\n§7将手持物品设为触发物品", "textures/ui/subcategory_icons/hands", "path",
         [](Player& pl) { setItemFromHand(pl); });
 
     fm.sendTo(player);

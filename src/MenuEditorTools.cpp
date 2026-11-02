@@ -1,7 +1,15 @@
-// MenuEditorTools.cpp - 编辑器增强页: 新建菜单 / 按钮移动位置 / 图标选择器（图标来自嵌入库, 必然合法）
+// MenuEditorTools.cpp - 编辑器增强页：新建菜单 / 按钮移动到指定位置 / 图标选择器
+//
+// 目的：把"游戏内改菜单"做得更快更不容易出错。三个页面都从既有编辑器入口进入：
+//   · 新建菜单      —— 编辑器主界面 → 「新建菜单」（不用再靠 submenu 目标自动创建）
+//   · 移动到指定位置 —— 按钮操作页 → 「移动到指定位置」（现在只有逐格上移/下移）
+//   · 图标选择器    —— 按钮操作页 → 「从图标库挑图标」（可分类浏览 + 关键字搜索；
+//                      候选按真实纹理显示，选中即写入该按钮的 icon）
+//
+// 图标来源是 IconValidator 的编译期嵌入数据（5603 条），所以选出来的路径**必然合法**，
+// 不会再出现手打路径导致的破图。
 #include "MenuEditor.h"
 
-#include "Config.h"
 #include "IconValidator.h"
 #include "MenuData.h"
 #include "MenuStore.h"
@@ -25,20 +33,12 @@ namespace meowmenu {
 namespace MenuEditor {
 
 using ll::form::CustomForm;
-using ll::form::CustomFormElementResult;
 using ll::form::CustomFormResult;
 using ll::form::SimpleForm;
 
 namespace {
 
 constexpr size_t kIconsPerPage = 24;
-
-// 下拉结果取下标（LL 里可能是 uint64 / double）
-uint64_t formResultToIndex(CustomFormElementResult const& v) {
-    if (auto p = std::get_if<unsigned long long>(&v)) return *p;
-    if (auto p = std::get_if<double>(&v)) return static_cast<uint64_t>(*p);
-    return 0;
-}
 
 // 菜单 ID 合法性（会作为文件名）：非空、无路径分隔与非法字符、不与现有菜单重名
 bool isValidMenuId(std::string const& id, std::string& reason) {
@@ -105,7 +105,9 @@ void applyIcon(Player& player, std::string const& menuId, int buttonIndex, std::
 
 } // namespace
 
-//==== 图标选择器 ====
+//================================================================
+// 图标选择器
+//================================================================
 void showIconPickerCategories(Player& player, std::string const& menuId, int buttonIndex) {
     auto fm = SimpleForm{};
     fm.setTitle("§l§b选择图标");
@@ -197,46 +199,27 @@ void showIconPicker(
     fm.sendTo(player);
 }
 
-//==== 新建菜单 ====
+//================================================================
+// 新建菜单
+//================================================================
 void showCreateMenuForm(Player& player) {
-    // 默认分级来自 config 的 menuLevel.defaultLevel（默认一级菜单）
-    size_t const defaultLevelIndex =
-        (ConfigManager::getInstance().getConfig().menuLevel.defaultLevel == 2) ? 1 : 0;
-
     auto fm = CustomForm{"§l§a新建菜单"};
     fm.appendInput("id", "§e菜单ID§7(英文/数字/下划线, 会作为文件名)", "myshop", "");
     fm.appendInput("title", "§b标题§7(支持 § 颜色码)", "§b我的商店", "§b新菜单");
     fm.appendInput("content", "§7内容", "欢迎光临", "");
     fm.appendDivider();
-    fm.appendDropdown(
-        "level",
-        "§d菜单分级",
-        {"一级菜单§7(可被触发物品打开; 也能被其它菜单打开)",
-         "二级菜单§7(只能从其它菜单进入, 触发物品不生效)"},
-        defaultLevelIndex
-    );
-    fm.appendInput(
-        "triggerItem",
-        "§e触发物品ID§7(一级菜单用, 可留空稍后设置)",
-        "minecraft:compass",
-        ""
-    );
-    fm.appendDivider();
-    fm.appendLabel("§7创建后直接进入该菜单的编辑页；分级与触发物品在编辑页里也能改。");
+    fm.appendLabel("§7创建后直接进入该菜单的编辑页；菜单列表里也能找到它。");
 
     fm.sendTo(player, [](Player& pl, CustomFormResult res, ll::form::FormCancelReason) {
         if (!res.has_value()) {
             showEditorMain(pl);
             return;
         }
-        std::string id, title, content, triggerInput;
-        size_t      levelIndex = 0;
+        std::string id, title, content;
         try {
-            id           = std::get<std::string>(res->at("id"));
-            title        = std::get<std::string>(res->at("title"));
-            content      = std::get<std::string>(res->at("content"));
-            triggerInput = std::get<std::string>(res->at("triggerItem"));
-            levelIndex   = static_cast<size_t>(formResultToIndex(res->at("level")));
+            id      = std::get<std::string>(res->at("id"));
+            title   = std::get<std::string>(res->at("title"));
+            content = std::get<std::string>(res->at("content"));
         } catch (...) {}
         // 去首尾空白
         auto trim = [](std::string s) {
@@ -254,48 +237,19 @@ void showCreateMenuForm(Player& player) {
             showCreateMenuForm(pl);
             return;
         }
-
-        int const level = (levelIndex == 1) ? 2 : 1; // 默认一级菜单
-        if (!MenuStore::getInstance().createMenu(id, title, content, level)) {
+        if (!MenuStore::getInstance().createMenu(id, title, content)) {
             pl.sendMessage("§c[MeowMenu] 创建失败（可能已存在同名文件）");
             showCreateMenuForm(pl);
             return;
         }
-
-        // 一级菜单顺手写上触发物品（校验用编辑器同一套规则: 补全命名空间 / 查重 / 钟留给主菜单）
-        std::string triggerType;
-        bool        triggerOk = true;
-        if (level == 1 && !trim(triggerInput).empty()) {
-            triggerOk = validateTriggerItemType(pl, id, triggerInput, triggerType);
-            if (triggerOk) {
-                if (auto menu = MenuStore::getInstance().getMenu(id)) {
-                    Menu local = *menu;
-                    local.triggerItem.type        = triggerType;
-                    local.triggerItem.displayName = triggerType;
-                    MenuStore::getInstance().saveMenu(local);
-                }
-            }
-        }
-
-        pl.sendMessage(fmt::format(
-            "§a[MeowMenu] 菜单 §f{} §a已创建（{}），直接进入编辑",
-            id,
-            level == 1 ? "§a一级菜单§a" : "§e二级菜单§a"
-        ));
-        if (level == 1) {
-            if (!triggerType.empty()) {
-                pl.sendMessage("§7触发物品: §f" + triggerType);
-            } else if (!triggerOk) {
-                pl.sendMessage("§7触发物品没设置成功, 可在编辑页 → 「菜单分级 / 触发物品」里补上");
-            } else {
-                pl.sendMessage("§c注意: 一级菜单还没配触发物品, 现在只能用菜单按钮打开它");
-            }
-        }
+        pl.sendMessage(fmt::format("§a[MeowMenu] 菜单 §f{} §a已创建，直接进入编辑", id));
         showEditMenu(pl, id);
     });
 }
 
-//==== 移动到指定位置 ====
+//================================================================
+// 移动到指定位置
+//================================================================
 void showMoveButtonTo(Player& player, std::string const& menuId, int buttonIndex) {
     auto menu = MenuStore::getInstance().getMenu(menuId);
     if (!menu || buttonIndex < 0 || buttonIndex >= static_cast<int>(menu->buttons.size())) {

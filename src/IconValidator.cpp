@@ -1,4 +1,8 @@
-// IconValidator.cpp - 图标路径校验/修复（数据源 = 编译期嵌入的 embedded_texture_path.h）
+// IconValidator.cpp - 图标路径校验与修复实现
+//
+// 数据源：编译期嵌入的图标库（src/embedded_texture_path.h）。
+// 运行时不读取任何外部文件；plugins/Meow/textures/texture_path.json 仅作为
+// 重新生成嵌入数据的可选输入，缺失不影响本插件加载与校验。
 #include "IconValidator.h"
 #include "MeowMenu.h"
 #include "embedded_texture_path.h"

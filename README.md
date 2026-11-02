@@ -19,14 +19,15 @@ BDS / LeviLamina 服务器菜单插件（C++ 实现，替代早期 JS 版 ——
 
 ## 环境要求
 
-- BDS **1.26.40**（协议 2168）+ **LeviLamina 26.40**
-- **LegacyRemoteCall**（RemoteCall API）
-- **HologramLib 26.40.8+**（可选前置）—— NPC 对话菜单 / 箱子界面 / NPC 生成需要；缺失时本插件照常加载，仅这几项功能禁用
-- 变量翻译（`%name%` / `{name}` / `{player}`）内置，无需额外安装
+- BDS **1.26.60** + **LeviLamina 26.60.0**
+- **MeowPAPI 1.2.0**：静态库已内嵌进本插件，首次加载自动释放到 `plugins/MeowPAPI/`，无需单独安装
+- **HologramLib 26.60**（可选前置）—— NPC 对话菜单 / 箱子界面 / 菜单 NPC 需要；缺失时菜单自动回退成表单，其余功能不受影响
+- **LegacyRemoteCall**（可选）—— 只有 LSE（Node.js）脚本通过 RemoteCall 调用本插件时才需要
+- 变量翻译（`%name%` / `{name}` / `{player}`）由 MeowPAPI 内置占位符提供，无需额外安装
 
 ## 安装
 
-把 `MeowMenu.dll` 与 `manifest.json` 放进 `plugins/MeowMenu/`，重启服务器。
+发布包解压到服务器根目录，即得到 `plugins/MeowMenu/`（`MeowMenu.dll` + `manifest.json`），重启服务器。
 首次启动会在 `Meowdata/MeowMenu/` 生成默认配置与主菜单。
 
 ## 命令
@@ -87,10 +88,16 @@ BDS / LeviLamina 服务器菜单插件（C++ 实现，替代早期 JS 版 ——
 
 ## 构建
 
+构建依赖同级的 MeowPAPI 仓库（静态库，`add_deps("MeowPAPI")`）：
+
 ```bash
+# 首次：先构建出内嵌用的 MeowPAPI.dll 与生成头
+(cd ../MeowPAPI && xmake build MeowPAPI_DLL && xmake build MeowPAPI)
+
 xmake build MeowMenu
 ```
 
-产物在 `build/windows/x64/release/`（`bin/` 为打包输出）。
+产物在 `build/windows/x64/release/`；`bin/MeowMenu/` 是 modpacker 打好的发布目录
+（`MeowMenu.dll` + `manifest.json`），压缩成 `MeowMenu.zip` 即可作为 Release 资产。
 图标库 `src/embedded_texture_path.h` 已随源码提供，开箱即可构建；
 需重新生成时运行 `gen_texture_path_embed.ps1`。
